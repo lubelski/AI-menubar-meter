@@ -14,8 +14,8 @@ struct UsagePanel: View {
                 ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error) {
                     if let usage = store.claude.value {
                         HStack(alignment: .top, spacing: 12) {
-                            WindowRow(title: "Session", window: usage.session)
-                            WindowRow(title: "Weekly", window: usage.weekly)
+                            WindowRow(title: "Session", kind: .session, window: usage.session)
+                            WindowRow(title: "Weekly", kind: .weekly, window: usage.weekly)
                         }
                         ForEach(usage.scopedWeekly, id: \.name) { limit in
                             ScopedRow(limit: limit)
@@ -29,8 +29,8 @@ struct UsagePanel: View {
                 ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error) {
                     if let usage = store.codex.value {
                         HStack(alignment: .top, spacing: 12) {
-                            WindowRow(title: "Session", window: usage.session)
-                            WindowRow(title: "Weekly", window: usage.weekly)
+                            WindowRow(title: "Session", kind: .session, window: usage.session)
+                            WindowRow(title: "Weekly", kind: .weekly, window: usage.weekly)
                         }
                     }
                 }
@@ -99,13 +99,15 @@ private struct ProviderSection<Content: View>: View {
 
 private struct WindowRow: View {
     let title: String
+    let kind: UsageGauge.Kind
     let window: UsageWindow?
 
-    @AppStorage(Preferences.meterStyle) private var style = MeterStyle.used
+    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
 
     var body: some View {
         MeterRow(
             title: title,
+            kind: kind,
             value: window.map { Text(percentLabel($0.fraction, style: style)) },
             used: window?.fraction,
             elapsed: window?.elapsedFraction(),
@@ -117,7 +119,7 @@ private struct WindowRow: View {
 private struct CreditRow: View {
     let credit: CreditUsage
 
-    @AppStorage(Preferences.meterStyle) private var style = MeterStyle.used
+    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
     @AppStorage(AuthPreferences.creditSource) private var source = CreditSource.claudePlan
 
     var body: some View {
@@ -128,6 +130,7 @@ private struct CreditRow: View {
         }
         MeterRow(
             title: source == .adminKey ? "This month" : "This period",
+            kind: .pool,
             value: Text(value),
             used: credit.fraction,
             elapsed: nil,
@@ -141,7 +144,7 @@ private struct CreditRow: View {
 private struct ScopedRow: View {
     let limit: ScopedLimit
 
-    @AppStorage(Preferences.meterStyle) private var style = MeterStyle.used
+    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
 
     var body: some View {
         HStack {
@@ -163,6 +166,7 @@ private func percentLabel(_ used: Double, style: MeterStyle) -> String {
 /// A vertical bar with the title, value, and a quiet caption stacked beside it.
 private struct MeterRow: View {
     let title: String
+    let kind: UsageGauge.Kind
     let value: Text?
     let used: Double?
     let elapsed: Double?
@@ -170,7 +174,7 @@ private struct MeterRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            UsageBar(used: used ?? 0, elapsed: elapsed)
+            UsageBar(kind: kind, used: used ?? 0, elapsed: elapsed)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.subheadline)
                 (value ?? Text("—"))
@@ -190,28 +194,46 @@ private struct MeterRow: View {
 
 /// Vertical bar that fills from the bottom, with an optional tick marking where the
 /// fill would be if usage were spread evenly across the window.
+///
+/// Matches the menu bar icon: widths keep its session < weekly < pool proportions,
+/// and the fill is monochrome until it turns orange or red.
 struct UsageBar: View {
+    let kind: UsageGauge.Kind
     let used: Double
     let elapsed: Double?
 
-    @AppStorage(Preferences.meterStyle) private var style = MeterStyle.used
+    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
     @AppStorage(Preferences.showPace) private var showPace = true
 
     private var tint: Color {
         switch UsageLevel(fraction: used) {
-        case .normal: .accentColor
+        case .normal: .primary
         case .warning: .orange
         case .critical: .red
         }
+    }
+
+    /// Twice the menu bar widths (3, 4.5, 7 pt).
+    private var width: CGFloat {
+        switch kind {
+        case .session: 6
+        case .weekly: 9
+        case .pool: 14
+        }
+    }
+
+    /// Thin bars are full pills. The wide pool bar gets softer corners, like a tank.
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: min(width / 2, 5), style: .continuous)
     }
 
     var body: some View {
         let fraction = style.displayed(used)
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
-                Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(tint.gradient)
+                shape.fill(.primary.opacity(0.18))
+                shape
+                    .fill(tint)
                     .frame(height: fraction > 0 ? max(proxy.size.height * fraction, 8) : 0)
                 if showPace, let elapsed {
                     let pace = style.displayed(elapsed)
@@ -223,7 +245,7 @@ struct UsageBar: View {
                 }
             }
         }
-        .frame(width: 8, height: 64)
+        .frame(width: width, height: 64)
         .animation(.smooth, value: fraction)
     }
 }

@@ -60,7 +60,7 @@ private struct FixedWindowTitle: NSViewRepresentable {
 private struct GeneralSettingsView: View {
     let store: UsageStore
 
-    @AppStorage(Preferences.meterStyle) private var style = MeterStyle.used
+    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
     @AppStorage(Preferences.showPace) private var showPace = true
     @AppStorage(Preferences.refreshMinutes) private var refreshMinutes = Preferences.defaultRefreshMinutes
     @AppStorage(Service.claude.visibilityKey) private var showClaude = true
@@ -72,8 +72,8 @@ private struct GeneralSettingsView: View {
         Form {
             Section("Appearance") {
                 Picker("Meters", selection: $style) {
-                    MeterStyleOption(title: "Fill up as you use them", example: 0.7).tag(MeterStyle.used)
                     MeterStyleOption(title: "Drain as you use them", example: 0.3).tag(MeterStyle.remaining)
+                    MeterStyleOption(title: "Fill up as you use them", example: 0.7).tag(MeterStyle.used)
                 }
                 .pickerStyle(.radioGroup)
 

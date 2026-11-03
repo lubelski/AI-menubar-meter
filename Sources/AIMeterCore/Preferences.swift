@@ -39,6 +39,8 @@ public enum Service: String, CaseIterable, Identifiable, Sendable {
 /// `UserDefaults` keys and defaults, shared by the app's `@AppStorage` properties.
 public enum Preferences {
     public static let meterStyle = "meterStyle"
+    /// Meters drain by default: a full bar means plenty left.
+    public static let defaultMeterStyle = MeterStyle.remaining
     public static let showPace = "showPace"
     public static let refreshMinutes = "refreshMinutes"
 

@@ -17,7 +17,7 @@ Click the icon for detail: percent used, reset times, and a tick on each bar tha
 
 Open from the panel's ⋯ menu (⌘,):
 
-- **Meters**: fill up as you use them, or drain as you use them. Values always say "used" or "left".
+- **Meters**: drain as you use them (the default), or fill up as you use them. Values always say "used" or "left".
 - **Pace marker**: show or hide the even-pace tick.
 - **Show**: hide Claude, OpenAI, or API credit from both the menu bar and the panel.
 - **Refresh** interval (1–15 min) and **Launch at login**.

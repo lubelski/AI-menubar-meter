@@ -6,7 +6,7 @@ import SwiftUI
 struct AIMeterApp: App {
     @State private var store: UsageStore
 
-    @AppStorage(Preferences.meterStyle) private var style = MeterStyle.used
+    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
     @AppStorage(Service.claude.visibilityKey) private var showClaude = true
     @AppStorage(Service.openAI.visibilityKey) private var showOpenAI = true
     @AppStorage(Service.apiCredit.visibilityKey) private var showAPICredit = true
