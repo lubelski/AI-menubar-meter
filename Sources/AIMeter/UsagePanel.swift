@@ -13,8 +13,10 @@ struct UsagePanel: View {
             if showClaude {
                 ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error) {
                     if let usage = store.claude.value {
-                        WindowRow(title: "Session", window: usage.session)
-                        WindowRow(title: "Weekly", window: usage.weekly)
+                        HStack(alignment: .top, spacing: 12) {
+                            WindowRow(title: "Session", window: usage.session)
+                            WindowRow(title: "Weekly", window: usage.weekly)
+                        }
                         ForEach(usage.scopedWeekly, id: \.name) { limit in
                             ScopedRow(limit: limit)
                         }
@@ -26,8 +28,10 @@ struct UsagePanel: View {
             if showOpenAI {
                 ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error) {
                     if let usage = store.codex.value {
-                        WindowRow(title: "Session", window: usage.session)
-                        WindowRow(title: "Weekly", window: usage.weekly)
+                        HStack(alignment: .top, spacing: 12) {
+                            WindowRow(title: "Session", window: usage.session)
+                            WindowRow(title: "Weekly", window: usage.weekly)
+                        }
                     }
                 }
                 Divider()
@@ -156,7 +160,7 @@ private func percentLabel(_ used: Double, style: MeterStyle) -> String {
     return style == .used ? "\(percent) used" : "\(percent) left"
 }
 
-/// Title and value on one line, a bar, then a quiet caption.
+/// A vertical bar with the title, value, and a quiet caption stacked beside it.
 private struct MeterRow: View {
     let title: String
     let value: Text?
@@ -165,26 +169,27 @@ private struct MeterRow: View {
     let caption: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .top, spacing: 10) {
+            UsageBar(used: used ?? 0, elapsed: elapsed)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.subheadline)
-                Spacer()
                 (value ?? Text("—"))
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
-            }
-            UsageBar(used: used ?? 0, elapsed: elapsed)
-            if let caption {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// Horizontal bar with an optional tick marking where the fill would be if usage
-/// were spread evenly across the window.
+/// Vertical bar that fills from the bottom, with an optional tick marking where the
+/// fill would be if usage were spread evenly across the window.
 struct UsageBar: View {
     let used: Double
     let elapsed: Double?
@@ -203,22 +208,22 @@ struct UsageBar: View {
     var body: some View {
         let fraction = style.displayed(used)
         GeometryReader { proxy in
-            ZStack(alignment: .leading) {
+            ZStack(alignment: .bottom) {
                 Capsule().fill(.quaternary)
                 Capsule()
                     .fill(tint.gradient)
-                    .frame(width: fraction > 0 ? max(proxy.size.width * fraction, 6) : 0)
+                    .frame(height: fraction > 0 ? max(proxy.size.height * fraction, 8) : 0)
                 if showPace, let elapsed {
                     let pace = style.displayed(elapsed)
                     RoundedRectangle(cornerRadius: 0.75)
                         .fill(.primary.opacity(0.55))
-                        .frame(width: 1.5, height: proxy.size.height + 4)
-                        .offset(x: proxy.size.width * pace - 0.75)
+                        .frame(width: proxy.size.width + 4, height: 1.5)
+                        .offset(y: -(proxy.size.height * pace - 0.75))
                         .help("Even pace: \(Int((elapsed * 100).rounded()))% of the window has elapsed")
                 }
             }
         }
-        .frame(height: 6)
+        .frame(width: 8, height: 64)
         .animation(.smooth, value: fraction)
     }
 }
