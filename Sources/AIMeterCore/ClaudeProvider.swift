@@ -1,0 +1,106 @@
+import Foundation
+
+/// Fetches Claude plan utilization from the same endpoint Claude Code's `/usage` uses.
+public struct ClaudeProvider: Sendable {
+    public init() {}
+
+    public func fetch(_ config: AuthConfig) async throws(ProviderError) -> ClaudeUsage {
+        let (token, plan) = try await Credentials.claudeAccessToken(config)
+        let data = try await HTTP.get(
+            URL(string: "https://api.anthropic.com/api/oauth/usage")!,
+            headers: [
+                "Authorization": "Bearer \(token)",
+                "anthropic-beta": "oauth-2025-04-20",
+            ]
+        )
+        guard var usage = Self.parse(data) else { throw .unexpectedResponse }
+        usage.plan = plan?.capitalized
+        return usage
+    }
+
+    static func parse(_ data: Data) -> ClaudeUsage? {
+        guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
+
+        let scoped = (response.limits ?? [])
+            .filter { $0.kind == "weekly_scoped" }
+            .compactMap { limit -> ScopedLimit? in
+                guard let name = limit.scope?.model?.display_name else { return nil }
+                return ScopedLimit(name: name, fraction: limit.percent / 100)
+            }
+
+        // The plan's API credit arrives under an internal codename that changes, so it's
+        // identified by shape instead: the only windows that carry a dollar limit.
+        let credit = response.dollarWindows
+            .sorted { $0.key < $1.key }
+            .lazy
+            .compactMap { _, window -> CreditUsage? in
+                guard let limit = window.limit_dollars, limit > 0 else { return nil }
+                return CreditUsage(used: window.used_dollars ?? 0, limit: limit, resetsAt: window.resetDate)
+            }
+            .first
+
+        return ClaudeUsage(
+            plan: nil,
+            session: response.five_hour?.usageWindow(duration: 5 * 3600),
+            weekly: response.seven_day?.usageWindow(duration: 7 * 86400),
+            scopedWeekly: scoped,
+            credit: credit
+        )
+    }
+
+    // MARK: Wire format
+
+    private struct Window: Decodable {
+        var utilization: Double?
+        var resets_at: String?
+        var limit_dollars: Double?
+        var used_dollars: Double?
+
+        var resetDate: Date? { resets_at.flatMap(Timestamp.parse) }
+
+        func usageWindow(duration: TimeInterval) -> UsageWindow? {
+            guard let utilization else { return nil }
+            return UsageWindow(fraction: utilization / 100, resetsAt: resetDate, duration: duration)
+        }
+    }
+
+    private struct Limit: Decodable {
+        struct Scope: Decodable {
+            struct Model: Decodable { var display_name: String? }
+            var model: Model?
+        }
+        var kind: String
+        var percent: Double
+        var scope: Scope?
+    }
+
+    private struct Response: Decodable {
+        var five_hour: Window?
+        var seven_day: Window?
+        var limits: [Limit]?
+        var dollarWindows: [String: Window]
+
+        private struct Key: CodingKey {
+            var stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            five_hour = try? container.decodeIfPresent(Window.self, forKey: Key(stringValue: "five_hour"))
+            seven_day = try? container.decodeIfPresent(Window.self, forKey: Key(stringValue: "seven_day"))
+            limits = try? container.decodeIfPresent([Limit].self, forKey: Key(stringValue: "limits"))
+
+            var windows: [String: Window] = [:]
+            for key in container.allKeys {
+                if let window = try? container.decodeIfPresent(Window.self, forKey: key),
+                   window.limit_dollars != nil {
+                    windows[key.stringValue] = window
+                }
+            }
+            dollarWindows = windows
+        }
+    }
+}
