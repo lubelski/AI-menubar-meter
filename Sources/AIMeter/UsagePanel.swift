@@ -7,11 +7,12 @@ struct UsagePanel: View {
     @AppStorage(Service.claude.visibilityKey) private var showClaude = true
     @AppStorage(Service.openAI.visibilityKey) private var showOpenAI = true
     @AppStorage(Service.apiCredit.visibilityKey) private var showAPICredit = true
+    @AppStorage(AuthPreferences.creditSource) private var creditSource = CreditSource.claudePlan
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if showClaude {
-                ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error) {
+                ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error, link: UsagePage.claude) {
                     if let usage = store.claude.value {
                         HStack(alignment: .top, spacing: 12) {
                             WindowRow(title: "Session", kind: .session, window: usage.session)
@@ -26,7 +27,7 @@ struct UsagePanel: View {
             }
 
             if showOpenAI {
-                ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error) {
+                ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error, link: UsagePage.codex) {
                     if let usage = store.codex.value {
                         HStack(alignment: .top, spacing: 12) {
                             WindowRow(title: "Session", kind: .session, window: usage.session)
@@ -38,7 +39,7 @@ struct UsagePanel: View {
             }
 
             if showAPICredit {
-                ProviderSection(title: "API Credit", plan: nil, error: store.credit.error) {
+                ProviderSection(title: "API Credit", plan: nil, error: store.credit.error, link: UsagePage.credit(creditSource)) {
                     if let credit = store.credit.value {
                         CreditRow(credit: credit)
                     } else if store.credit.isConnected {
@@ -59,10 +60,23 @@ struct UsagePanel: View {
 
 // MARK: - Sections
 
+/// Web pages that show the same numbers in full, linked from each section header.
+private enum UsagePage {
+    static let claude = URL(string: "https://claude.ai/settings/usage")!
+    static let codex = URL(string: "https://chatgpt.com/codex/settings/usage")!
+    static let platformCost = URL(string: "https://platform.claude.com/cost")!
+
+    /// The plan's credit appears on Claude's usage page. Admin API spend is on the platform's cost page.
+    static func credit(_ source: CreditSource) -> URL {
+        source == .adminKey ? platformCost : claude
+    }
+}
+
 private struct ProviderSection<Content: View>: View {
     let title: String
     let plan: String?
     let error: ProviderError?
+    let link: URL
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -78,6 +92,12 @@ private struct ProviderSection<Content: View>: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Link(destination: link) {
+                    Image(systemName: "arrow.up.forward.square")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Open \(link.host() ?? "usage page")")
                 if let error {
                     Label(error.message, systemImage: "exclamationmark.triangle.fill")
                         .labelStyle(.iconOnly)

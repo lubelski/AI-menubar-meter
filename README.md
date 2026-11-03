@@ -12,6 +12,7 @@ Gauges are monochrome while everything's fine and turn orange at 75% and red at 
 Session bars are thinnest, weekly bars medium, and the API credit bar widest.
 Click the icon for detail: percent used, reset times, and a tick on each bar that marks
 **even pace** (how much of the window has elapsed). Fill past the tick means you're burning faster than the window refills.
+The arrow in each section header opens that service's own usage page: claude.ai, ChatGPT's Codex usage, or the Claude Platform cost page when API Credit uses an Admin API key.
 
 ## Settings
 
