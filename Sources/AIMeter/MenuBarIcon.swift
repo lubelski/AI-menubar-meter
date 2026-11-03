@@ -106,8 +106,8 @@ enum MenuBarIcon {
 
     private static func drawBar(_ gauge: UsageGauge, in rect: NSRect, style: MeterStyle, template: Bool) {
         let base: NSColor = template ? .black : .labelColor
-        // Thin bars are full pills; the wide pool bar gets softer corners, like a tank.
-        let radius = min(rect.width / 2, 2.5)
+        // Slightly rounded rectangles, not pills: the corners soften without eating the fill.
+        let radius: CGFloat = 1
         let track = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
 
         guard let used = gauge.fraction else {

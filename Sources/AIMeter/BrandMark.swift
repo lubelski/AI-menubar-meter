@@ -25,17 +25,19 @@ enum BrandMark {
         return image
     }
 
-    /// Claude's starburst: rays of alternating length from the center.
+    /// Claude's spark: a ring of near-equal rays from the center. The small, fixed
+    /// variation in length keeps it organic rather than a geometric asterisk.
     private static func drawSpark(in rect: NSRect, color: NSColor) {
         let center = NSPoint(x: rect.midX, y: rect.midY)
         let outer = rect.width / 2
-        let rays = 10
+        let lengths: [CGFloat] = [1, 0.93, 0.97, 0.9, 1, 0.95, 0.92, 0.98, 0.94, 1, 0.91, 0.96]
+        let rays = lengths.count
         let path = NSBezierPath()
-        path.lineWidth = max(rect.width * 0.13, 1)
+        path.lineWidth = max(rect.width * 0.11, 0.9)
         path.lineCapStyle = .round
         for index in 0..<rays {
             let angle = CGFloat(index) / CGFloat(rays) * 2 * .pi + .pi / 2
-            let length = (index.isMultiple(of: 2) ? 1 : 0.72) * (outer - path.lineWidth / 2)
+            let length = lengths[index] * (outer - path.lineWidth / 2)
             path.move(to: center)
             path.line(to: NSPoint(x: center.x + cos(angle) * length, y: center.y + sin(angle) * length))
         }
