@@ -7,16 +7,20 @@ import AppKit
 /// matches the menu bar exactly like a system icon. When any gauge crosses a
 /// threshold it switches to a colored image so the hot gauge stands out.
 enum MenuBarIcon {
-    private static let barHeight: CGFloat = 15
-    private static let barGap: CGFloat = 2
-    private static let groupGap: CGFloat = 5
     private static let canvasHeight: CGFloat = 18
+    /// Inset between a brand's plate and the logo and bars inside it.
+    private static let platePadding: CGFloat = 2
+    private static let plateRadius: CGFloat = 3.5
+    private static let plateOpacity: CGFloat = 0.14
+    /// Space between two brands' plates.
+    private static let plateGap: CGFloat = 3
+    private static let barHeight = canvasHeight - 2 * platePadding
+    private static let barGap: CGFloat = 2
+    /// Space between two services that share a plate, such as Claude and API credit.
+    private static let groupGap: CGFloat = 4
     private static let logoSize: CGFloat = 10
     /// Space between a logo and the first bar it labels.
     private static let logoGap: CGFloat = 2.5
-    /// Space before a new brand's logo. Wider than `groupGap` so the logo reads as
-    /// belonging to the bars after it.
-    private static let brandGap: CGFloat = 7
 
     /// Session < weekly < money pool, so each kind is recognizable by shape alone.
     private static func barWidth(for kind: UsageGauge.Kind) -> CGFloat {
@@ -27,7 +31,7 @@ enum MenuBarIcon {
         }
     }
 
-    /// One service's gauges. Consecutive groups with the same brand share one logo.
+    /// One service's gauges. Consecutive groups with the same brand share one plate and logo.
     struct Group {
         var service: Service
         var gauges: [UsageGauge]
@@ -47,49 +51,61 @@ enum MenuBarIcon {
         }
     }
 
-    /// Lays the groups out left to right as logos, bars, and the gaps between them.
-    private static func layout(_ groups: [Group], showLogos: Bool) -> [Item] {
+    /// One brand's logo and bars, drawn on a shared rounded plate.
+    private struct Plate {
+        var brand: Brand
         var items: [Item] = []
-        var previous: Brand?
+
+        var width: CGFloat { items.map(\.width).reduce(0, +) + 2 * platePadding }
+    }
+
+    /// Splits the groups into one plate per run of the same brand.
+    private static func layout(_ groups: [Group], showLogos: Bool) -> [Plate] {
+        var plates: [Plate] = []
         for group in groups {
             let brand = group.service.brand
-            if showLogos, brand != previous {
-                if previous != nil { items.append(.gap(brandGap)) }
-                items += [.logo(brand), .gap(logoGap)]
-            } else if previous != nil {
-                items.append(.gap(groupGap))
+            if plates.last?.brand == brand {
+                plates[plates.count - 1].items.append(.gap(groupGap))
+            } else {
+                plates.append(Plate(brand: brand, items: showLogos ? [.logo(brand), .gap(logoGap)] : []))
             }
             for (index, gauge) in group.gauges.enumerated() {
-                if index > 0 { items.append(.gap(barGap)) }
-                items.append(.bar(gauge))
+                if index > 0 { plates[plates.count - 1].items.append(.gap(barGap)) }
+                plates[plates.count - 1].items.append(.bar(gauge))
             }
-            previous = brand
         }
-        return items
+        return plates
     }
 
     static func image(for groups: [Group], style: MeterStyle, showLogos: Bool) -> NSImage {
         let gauges = groups.flatMap(\.gauges)
         let isTemplate = gauges.allSatisfy { $0.level == .normal }
-        let items = layout(groups, showLogos: showLogos)
-        let width = items.map(\.width).reduce(0, +)
+        let plates = layout(groups, showLogos: showLogos)
+        let width = plates.map(\.width).reduce(0, +) + CGFloat(max(plates.count - 1, 0)) * plateGap
 
         let image = NSImage(size: NSSize(width: width, height: canvasHeight), flipped: false) { _ in
             let base: NSColor = isTemplate ? .black : .labelColor
-            var x: CGFloat = 0
-            for item in items {
-                switch item {
-                case .logo(let brand):
-                    let y = (canvasHeight - logoSize) / 2
-                    BrandMark.draw(brand, in: NSRect(x: x, y: y, width: logoSize, height: logoSize), color: base)
-                case .bar(let gauge):
-                    let y = (canvasHeight - barHeight) / 2
-                    drawBar(gauge, in: NSRect(x: x, y: y, width: item.width, height: barHeight),
-                            style: style, template: isTemplate)
-                case .gap:
-                    break
+            var plateX: CGFloat = 0
+            for plate in plates {
+                let plateRect = NSRect(x: plateX, y: 0, width: plate.width, height: canvasHeight)
+                base.withAlphaComponent(plateOpacity).setFill()
+                NSBezierPath(roundedRect: plateRect, xRadius: plateRadius, yRadius: plateRadius).fill()
+
+                var x = plateX + platePadding
+                for item in plate.items {
+                    switch item {
+                    case .logo(let brand):
+                        let y = (canvasHeight - logoSize) / 2
+                        BrandMark.draw(brand, in: NSRect(x: x, y: y, width: logoSize, height: logoSize), color: base)
+                    case .bar(let gauge):
+                        drawBar(gauge, in: NSRect(x: x, y: platePadding, width: item.width, height: barHeight),
+                                style: style, template: isTemplate)
+                    case .gap:
+                        break
+                    }
+                    x += item.width
                 }
-                x += item.width
+                plateX += plate.width + plateGap
             }
             return true
         }
