@@ -12,7 +12,7 @@ struct UsagePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if showClaude {
-                ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error, link: UsagePage.claude) {
+                ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error, brand: .anthropic, link: UsagePage.claude) {
                     if let usage = store.claude.value {
                         HStack(alignment: .top, spacing: 12) {
                             WindowRow(title: "Session", kind: .session, window: usage.session)
@@ -26,25 +26,25 @@ struct UsagePanel: View {
                 Divider()
             }
 
-            if showOpenAI {
-                ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error, link: UsagePage.codex) {
-                    if let usage = store.codex.value {
-                        HStack(alignment: .top, spacing: 12) {
-                            WindowRow(title: "Session", kind: .session, window: usage.session)
-                            WindowRow(title: "Weekly", kind: .weekly, window: usage.weekly)
-                        }
-                    }
-                }
-                Divider()
-            }
-
             if showAPICredit {
-                ProviderSection(title: "API Credit", plan: nil, error: store.credit.error, link: UsagePage.credit(creditSource)) {
+                ProviderSection(title: "API Credit", plan: nil, error: store.credit.error, brand: .anthropic, link: UsagePage.credit(creditSource)) {
                     if let credit = store.credit.value {
                         CreditRow(credit: credit)
                     } else if store.credit.isConnected {
                         Text("No API credit on this plan")
                             .foregroundStyle(.secondary)
+                    }
+                }
+                Divider()
+            }
+
+            if showOpenAI {
+                ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error, brand: .openAI, link: UsagePage.codex) {
+                    if let usage = store.codex.value {
+                        HStack(alignment: .top, spacing: 12) {
+                            WindowRow(title: "Session", kind: .session, window: usage.session)
+                            WindowRow(title: "Weekly", kind: .weekly, window: usage.weekly)
+                        }
                     }
                 }
                 Divider()
@@ -76,12 +76,19 @@ private struct ProviderSection<Content: View>: View {
     let title: String
     let plan: String?
     let error: ProviderError?
+    let brand: Brand
     let link: URL
     @ViewBuilder let content: Content
+
+    @AppStorage(Preferences.showLogos) private var showLogos = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
+                if showLogos {
+                    Image(nsImage: BrandMark.image(brand, size: 12))
+                        .foregroundStyle(.secondary)
+                }
                 Text(title).font(.headline)
                 if let plan {
                     Text(plan)

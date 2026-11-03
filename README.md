@@ -5,11 +5,12 @@ A small macOS menu bar app that shows five thermometers for your AI usage:
 | Group  | Gauges |
 |--------|--------|
 | Claude | 5-hour session · weekly |
-| OpenAI (Codex) | 5-hour session · weekly |
 | API credit | dollars used of the Claude plan's API credit |
+| OpenAI (Codex) | 5-hour session · weekly |
 
 Gauges are monochrome while everything's fine and turn orange at 75% and red at 90%.
 Session bars are thinnest, weekly bars medium, and the API credit bar widest.
+A small logo can lead each brand's meters: Claude's spark before Claude and API credit, OpenAI's knot before Codex.
 Click the icon for detail: percent used, reset times, and a tick on each bar that marks
 **even pace** (how much of the window has elapsed). Fill past the tick means you're burning faster than the window refills.
 The arrow in each section header opens that service's own usage page: claude.ai, ChatGPT's Codex usage, or the Claude Platform cost page when API Credit uses an Admin API key.
@@ -19,8 +20,9 @@ The arrow in each section header opens that service's own usage page: claude.ai,
 Open from the panel's ⋯ menu (⌘,):
 
 - **Meters**: drain as you use them (the default), or fill up as you use them. Values always say "used" or "left".
+- **Service logos**: show or hide the logos in the menu bar and panel.
 - **Pace marker**: show or hide the even-pace tick.
-- **Show**: hide Claude, OpenAI, or API credit from both the menu bar and the panel.
+- **Show**: hide Claude, API credit, or OpenAI from both the menu bar and the panel.
 - **Refresh** interval (1–15 min) and **Launch at login**.
 
 ## Accounts

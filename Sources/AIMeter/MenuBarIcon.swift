@@ -11,6 +11,12 @@ enum MenuBarIcon {
     private static let barGap: CGFloat = 2
     private static let groupGap: CGFloat = 5
     private static let canvasHeight: CGFloat = 18
+    private static let logoSize: CGFloat = 10
+    /// Space between a logo and the first bar it labels.
+    private static let logoGap: CGFloat = 2.5
+    /// Space before a new brand's logo. Wider than `groupGap` so the logo reads as
+    /// belonging to the bars after it.
+    private static let brandGap: CGFloat = 7
 
     /// Session < weekly < money pool, so each kind is recognizable by shape alone.
     private static func barWidth(for kind: UsageGauge.Kind) -> CGFloat {
@@ -21,25 +27,69 @@ enum MenuBarIcon {
         }
     }
 
-    static func image(for groups: [[UsageGauge]], style: MeterStyle) -> NSImage {
-        let gauges = groups.flatMap(\.self)
-        let isTemplate = gauges.allSatisfy { $0.level == .normal }
+    /// One service's gauges. Consecutive groups with the same brand share one logo.
+    struct Group {
+        var service: Service
+        var gauges: [UsageGauge]
+    }
 
-        let width = gauges.map { barWidth(for: $0.kind) }.reduce(0, +)
-            + CGFloat(gauges.count - groups.count) * barGap
-            + CGFloat(max(groups.count - 1, 0)) * groupGap
+    private enum Item {
+        case logo(Brand)
+        case gap(CGFloat)
+        case bar(UsageGauge)
+
+        var width: CGFloat {
+            switch self {
+            case .logo: logoSize
+            case .gap(let width): width
+            case .bar(let gauge): barWidth(for: gauge.kind)
+            }
+        }
+    }
+
+    /// Lays the groups out left to right as logos, bars, and the gaps between them.
+    private static func layout(_ groups: [Group], showLogos: Bool) -> [Item] {
+        var items: [Item] = []
+        var previous: Brand?
+        for group in groups {
+            let brand = group.service.brand
+            if showLogos, brand != previous {
+                if previous != nil { items.append(.gap(brandGap)) }
+                items += [.logo(brand), .gap(logoGap)]
+            } else if previous != nil {
+                items.append(.gap(groupGap))
+            }
+            for (index, gauge) in group.gauges.enumerated() {
+                if index > 0 { items.append(.gap(barGap)) }
+                items.append(.bar(gauge))
+            }
+            previous = brand
+        }
+        return items
+    }
+
+    static func image(for groups: [Group], style: MeterStyle, showLogos: Bool) -> NSImage {
+        let gauges = groups.flatMap(\.gauges)
+        let isTemplate = gauges.allSatisfy { $0.level == .normal }
+        let items = layout(groups, showLogos: showLogos)
+        let width = items.map(\.width).reduce(0, +)
 
         let image = NSImage(size: NSSize(width: width, height: canvasHeight), flipped: false) { _ in
+            let base: NSColor = isTemplate ? .black : .labelColor
             var x: CGFloat = 0
-            let y = (canvasHeight - barHeight) / 2
-            for (groupIndex, group) in groups.enumerated() {
-                if groupIndex > 0 { x += groupGap - barGap }
-                for gauge in group {
-                    let barWidth = barWidth(for: gauge.kind)
-                    drawBar(gauge, in: NSRect(x: x, y: y, width: barWidth, height: barHeight),
+            for item in items {
+                switch item {
+                case .logo(let brand):
+                    let y = (canvasHeight - logoSize) / 2
+                    BrandMark.draw(brand, in: NSRect(x: x, y: y, width: logoSize, height: logoSize), color: base)
+                case .bar(let gauge):
+                    let y = (canvasHeight - barHeight) / 2
+                    drawBar(gauge, in: NSRect(x: x, y: y, width: item.width, height: barHeight),
                             style: style, template: isTemplate)
-                    x += barWidth + barGap
+                case .gap:
+                    break
                 }
+                x += item.width
             }
             return true
         }

@@ -62,6 +62,7 @@ private struct GeneralSettingsView: View {
 
     @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
     @AppStorage(Preferences.showPace) private var showPace = true
+    @AppStorage(Preferences.showLogos) private var showLogos = true
     @AppStorage(Preferences.refreshMinutes) private var refreshMinutes = Preferences.defaultRefreshMinutes
     @AppStorage(Service.claude.visibilityKey) private var showClaude = true
     @AppStorage(Service.openAI.visibilityKey) private var showOpenAI = true
@@ -78,10 +79,15 @@ private struct GeneralSettingsView: View {
                 .pickerStyle(.radioGroup)
 
                 LabeledContent("Menu bar") {
-                    Image(nsImage: MenuBarIcon.image(for: visibleGaugeGroups, style: style))
+                    Image(nsImage: MenuBarIcon.image(for: visibleGaugeGroups, style: style, showLogos: showLogos))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                }
+
+                Toggle(isOn: $showLogos) {
+                    Text("Show service logos")
+                    Text("A small mark before each group of meters, in the menu bar and the panel.")
                 }
 
                 Toggle(isOn: $showPace) {
@@ -93,10 +99,10 @@ private struct GeneralSettingsView: View {
             Section("Show") {
                 Toggle(Service.claude.title, isOn: $showClaude)
                     .disabled(isLastVisible(showClaude))
-                Toggle(Service.openAI.title, isOn: $showOpenAI)
-                    .disabled(isLastVisible(showOpenAI))
                 Toggle(Service.apiCredit.title, isOn: $showAPICredit)
                     .disabled(isLastVisible(showAPICredit))
+                Toggle(Service.openAI.title, isOn: $showOpenAI)
+                    .disabled(isLastVisible(showOpenAI))
             }
 
             Section("General") {
@@ -125,10 +131,9 @@ private struct GeneralSettingsView: View {
         }
     }
 
-    private var visibleGaugeGroups: [[UsageGauge]] {
-        [(Service.claude, showClaude), (.openAI, showOpenAI), (.apiCredit, showAPICredit)]
-            .filter(\.1)
-            .map { store.gauges(for: $0.0) }
+    private var visibleGaugeGroups: [MenuBarIcon.Group] {
+        _ = (showClaude, showOpenAI, showAPICredit)
+        return store.visibleGaugeGroups()
     }
 
     /// Keeps at least one service on, so the menu bar item never disappears.
