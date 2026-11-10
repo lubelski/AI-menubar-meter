@@ -72,7 +72,7 @@ Requires Xcode (for SwiftUI macros). `xcode-select` doesn't need to point at it;
 
 ```sh
 ./scripts/bundle.sh            # builds build/AI Meter.app
-./scripts/bundle.sh --install  # also copies to ~/Applications and launches
+./scripts/bundle.sh --install  # moves it to ~/Applications, replacing the running copy, and launches
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
@@ -84,4 +84,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
   - `AccountState.swift`: an account with its latest reading, and the rule for when that reading is out of date
 - `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, and Settings
   - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for both the menu bar icon and the panel
+- `docs/investigations`: write-ups of problems that were investigated, including ones with no confirmed cause
 - `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store

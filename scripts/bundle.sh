@@ -39,10 +39,25 @@ codesign --force --sign - "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--install" ]]; then
-  pkill -x AIMeter || true
+  DEST=~/Applications/"AI Meter.app"
+  LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+  # Stop the running copy and wait until it has exited. Otherwise the old process can
+  # still own the menu bar item when the new one registers its own.
+  if pkill -x AIMeter; then
+    for _ in {1..50}; do
+      pgrep -x AIMeter >/dev/null || break
+      sleep 0.1
+    done
+    pkill -9 -x AIMeter || true
+  fi
+
   mkdir -p ~/Applications
-  rm -rf ~/Applications/"AI Meter.app"
-  cp -R "$APP" ~/Applications/
-  open ~/Applications/"AI Meter.app"
-  echo "Installed and launched ~/Applications/AI Meter.app"
+  rm -rf "$DEST"
+  # Move the bundle instead of copying it. A second bundle with the same bundle
+  # identifier lets LaunchServices and the login item resolve to either one.
+  mv "$APP" "$DEST"
+  "$LSREGISTER" -f "$DEST"
+  open "$DEST"
+  echo "Installed and launched $DEST"
 fi
