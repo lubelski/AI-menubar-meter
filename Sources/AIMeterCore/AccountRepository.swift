@@ -1,5 +1,14 @@
 import Foundation
 
+/// The part of `UserDefaults` that the account list needs. Tests substitute a dictionary,
+/// so they never write preference files.
+public protocol SettingsStore {
+    func object(forKey key: String) -> Any?
+    func set(_ value: Any?, forKey key: String)
+}
+
+extension UserDefaults: SettingsStore {}
+
 /// Loads and saves the list of accounts.
 ///
 /// The list is a JSON array under one `UserDefaults` key. The first load builds it:
@@ -8,13 +17,13 @@ import Foundation
 public struct AccountRepository {
     static let key = "accounts"
 
-    private let defaults: UserDefaults
+    private let defaults: any SettingsStore
     private let secrets: any SecretStore
     private let home: URL
     private let fileExists: (String) -> Bool
 
     public init(
-        defaults: UserDefaults = .standard,
+        defaults: any SettingsStore = UserDefaults.standard,
         secrets: any SecretStore = KeychainSecrets(),
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         fileExists: @escaping (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
@@ -26,7 +35,7 @@ public struct AccountRepository {
     }
 
     public func load() -> [Account] {
-        if let data = defaults.data(forKey: Self.key),
+        if let data = defaults.object(forKey: Self.key) as? Data,
            let stored = try? JSONDecoder().decode([Lossy<Account>].self, from: data) {
             // An entry this version can't read (a kind added by a newer version) is skipped.
             return stored.compactMap(\.value)
@@ -72,7 +81,9 @@ public struct AccountRepository {
         var accounts: [Account] = []
         func shown(_ key: String) -> Bool { defaults.object(forKey: key) as? Bool ?? true }
 
-        let claudeSource = defaults.string(forKey: Legacy.claudeSource)
+        func string(_ key: String) -> String? { defaults.object(forKey: key) as? String }
+
+        let claudeSource = string(Legacy.claudeSource)
         let hasClaudeCode = fileExists(home.appending(path: ".claude").path(percentEncoded: false))
             || fileExists(home.appending(path: ".claude.json").path(percentEncoded: false))
         if claudeSource != nil || hasClaudeCode {
@@ -82,22 +93,22 @@ public struct AccountRepository {
             accounts.append(account)
         }
 
-        let openAISource = defaults.string(forKey: Legacy.openAISource)
-        let chosenHome = defaults.string(forKey: Legacy.codexHome).flatMap { $0 == Account.defaultCodexHome ? nil : $0 }
+        let openAISource = string(Legacy.openAISource)
+        let chosenHome = string(Legacy.codexHome).flatMap { $0 == Account.defaultCodexHome ? nil : $0 }
         let authFile = URL(fileURLWithPath: chosenHome ?? Account.defaultCodexHome).appending(path: "auth.json")
         if openAISource != nil || fileExists(authFile.path(percentEncoded: false)) {
             let account = Account(
                 kind: .codex, isVisible: shown(Legacy.showOpenAI),
                 credential: openAISource == "token" ? .pasted : .cli,
                 codexHome: chosenHome,
-                chatGPTAccountID: defaults.string(forKey: Legacy.openAIAccountID).flatMap { $0.isEmpty ? nil : $0 })
+                chatGPTAccountID: string(Legacy.openAIAccountID).flatMap { $0.isEmpty ? nil : $0 })
             if account.credential == .pasted { moveSecret(Legacy.openAIToken, to: account) }
             accounts.append(account)
         }
 
         // 1.0 showed the plan's API credit as its own item. It is now a tank on the Claude
         // account, so only spend read with an Admin key needs an account of its own.
-        if defaults.string(forKey: Legacy.creditSource) == "adminKey" {
+        if string(Legacy.creditSource) == "adminKey" {
             let account = Account(kind: .anthropicAPI, isVisible: shown(Legacy.showAPICredit),
                                   monthlyBudget: defaults.object(forKey: Legacy.monthlyBudget) as? Double)
             moveSecret(Legacy.adminKey, to: account)

@@ -20,12 +20,12 @@ final class MemorySecrets: SecretStore, @unchecked Sendable {
     }
 }
 
-/// A `UserDefaults` suite that exists for one test.
-private func scratchDefaults() -> UserDefaults {
-    let name = "AIMeterTests.\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: name)!
-    defaults.removePersistentDomain(forName: name)
-    return defaults
+/// Keeps settings in memory so tests never write preference files.
+final class MemorySettings: SettingsStore {
+    private var values: [String: Any] = [:]
+
+    func object(forKey key: String) -> Any? { values[key] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
 
 private func reading(_ used: Double) -> Reading {
@@ -87,19 +87,19 @@ struct AccountRepositoryTests {
 
     @Test func aFreshInstallAddsOnlyTheLoginsItFinds() {
         let codexAuth = URL(fileURLWithPath: Account.defaultCodexHome).appending(path: "auth.json").path(percentEncoded: false)
-        let repository = AccountRepository(defaults: scratchDefaults(), secrets: MemorySecrets(), home: home) {
+        let repository = AccountRepository(defaults: MemorySettings(), secrets: MemorySecrets(), home: home) {
             $0 == codexAuth
         }
         #expect(repository.load().map(\.kind) == [.codex])
     }
 
     @Test func aFreshInstallWithNoLoginsStartsEmpty() {
-        let repository = AccountRepository(defaults: scratchDefaults(), secrets: MemorySecrets(), home: home) { _ in false }
+        let repository = AccountRepository(defaults: MemorySettings(), secrets: MemorySecrets(), home: home) { _ in false }
         #expect(repository.load().isEmpty)
     }
 
     @Test func migratesTheSingleAccountSettings() throws {
-        let defaults = scratchDefaults()
+        let defaults = MemorySettings()
         defaults.set("token", forKey: "auth.claude.source")
         defaults.set("codexCLI", forKey: "auth.openai.source")
         defaults.set("/tmp/other-codex", forKey: "auth.openai.codexHome")
@@ -125,7 +125,7 @@ struct AccountRepositoryTests {
     }
 
     @Test func savedAccountsLoadBackInOrder() {
-        let repository = AccountRepository(defaults: scratchDefaults(), secrets: MemorySecrets(), home: home) { _ in true }
+        let repository = AccountRepository(defaults: MemorySettings(), secrets: MemorySecrets(), home: home) { _ in true }
         let accounts = [
             Account(kind: .codex, name: "Work"),
             Account(kind: .codex, name: "Personal", codexHome: "/tmp/personal"),
@@ -136,7 +136,7 @@ struct AccountRepositoryTests {
     }
 
     @Test func anAccountOfAnUnknownKindIsSkipped() {
-        let defaults = scratchDefaults()
+        let defaults = MemorySettings()
         let json = """
         [{"id":"\(UUID().uuidString)","kind":"gemini","name":"Gemini","isVisible":true,"credential":"cli"},
          {"id":"\(UUID().uuidString)","kind":"codex","name":"OpenAI","isVisible":true,"credential":"cli"}]
@@ -165,7 +165,7 @@ struct UsageStoreTests {
     private func store(
         _ accounts: [Account], secrets: MemorySecrets = MemorySecrets(), fetch: @escaping UsageStore.Fetch
     ) -> UsageStore {
-        let repository = AccountRepository(defaults: scratchDefaults(), secrets: secrets,
+        let repository = AccountRepository(defaults: MemorySettings(), secrets: secrets,
                                            home: URL(fileURLWithPath: "/Users/tester")) { _ in false }
         repository.save(accounts)
         return UsageStore(repository: repository, fetch: fetch)
