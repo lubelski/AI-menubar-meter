@@ -10,41 +10,25 @@ enum Credentials {
             guard let token = config.claudeToken else { throw .notSignedIn }
             return (token, nil)
         case .claudeCode:
-            return try await claudeCodeLogin()
+            let login = try await claudeCodeLogin()
+            return (login.accessToken, login.plan)
         }
     }
 
-    /// Claude Code stores its login in the login Keychain. We read it through
-    /// `/usr/bin/security` because that tool is already on the item's access list
-    /// (Claude Code writes the item with it), which avoids a Keychain prompt on
-    /// every rebuild of an ad-hoc-signed app.
-    private static func claudeCodeLogin() async throws(ProviderError) -> (token: String, plan: String?) {
-        let data: Data
-        if let keychain = try? await run("/usr/bin/security",
-                                         ["find-generic-password", "-s", "Claude Code-credentials", "-w"]) {
-            data = keychain
-        } else if let file = try? Data(contentsOf: FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".claude/.credentials.json")) {
-            data = file
+    /// Returns a usable Claude Code login. If the stored token has expired, or the server
+    /// rejected `rejected`, asks the CLI to refresh it and reads the login again.
+    static func claudeCodeLogin(rejecting rejected: String? = nil) async throws(ProviderError) -> ClaudeCodeLogin {
+        let result: Result<ClaudeCodeLogin, ClaudeCodeIssue>
+        if let early = ClaudeCodeLogin.resolve(await ClaudeCodeLogin.read(), rejecting: rejected) {
+            result = early
         } else {
-            throw .notSignedIn
+            let nudge = await ClaudeCodeCLI.shared.nudge()
+            result = ClaudeCodeLogin.resolve(await ClaudeCodeLogin.read(), rejecting: rejected, after: nudge)
         }
-
-        struct Payload: Decodable {
-            struct OAuth: Decodable {
-                var accessToken: String
-                var expiresAt: Double?
-                var subscriptionType: String?
-            }
-            var claudeAiOauth: OAuth
+        switch result {
+        case .success(let login): return login
+        case .failure(let issue): throw .claudeCode(issue)
         }
-        guard let oauth = try? JSONDecoder().decode(Payload.self, from: data).claudeAiOauth else {
-            throw .notSignedIn
-        }
-        if let expiresAt = oauth.expiresAt, Date(timeIntervalSince1970: expiresAt / 1000) < .now {
-            throw .sessionExpired
-        }
-        return (oauth.accessToken, oauth.subscriptionType)
     }
 
     // MARK: OpenAI
@@ -70,26 +54,5 @@ enum Credentials {
             }
             return (tokens.access_token, tokens.account_id)
         }
-    }
-
-    // MARK: Helpers
-
-    private struct ProcessFailure: Error {}
-
-    private static func run(_ executable: String, _ arguments: [String]) async throws -> Data {
-        try await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            // Drain before waiting so a large payload can't fill the pipe and deadlock.
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { throw ProcessFailure() }
-            return data
-        }.value
     }
 }

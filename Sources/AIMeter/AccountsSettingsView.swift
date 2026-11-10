@@ -130,11 +130,15 @@ private struct ClaudeAccountForm: View {
                 }
             } footer: {
                 Footnote(source == .claudeCode
-                    ? "Uses the login from the `claude` command. To sign in or switch accounts, run `claude` and then `/login`."
+                    ? "Uses the login from the `claude` command. When it expires, AI Meter asks Claude Code to refresh it. To switch accounts, run `claude auth login`."
                     : "A Claude OAuth access token. It's stored in your Keychain.")
             }
 
             StatusSection(store: store, connection: Connection(.claude, store: store)) {
+                if let issue = store.claude.error?.claudeCodeIssue {
+                    ClaudeCodeFix(store: store, issue: issue)
+                        .font(.callout)
+                }
                 if let plan = store.claude.value?.plan {
                     LabeledContent("Plan", value: plan)
                 }
