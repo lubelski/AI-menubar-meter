@@ -241,13 +241,19 @@ private struct Footer: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.dismiss) private var dismiss
 
+    /// True while a refresh that the user started with the refresh button is running.
+    @State private var userIsRefreshing = false
+
     var body: some View {
         HStack(spacing: 10) {
             TimelineView(.periodic(from: .now, by: 30)) { _ in
-                if let updated = store.lastUpdated {
+                // Every refresh shows here, whatever started it.
+                if store.isRefreshing {
+                    Text("Updating…")
+                } else if let updated = store.lastUpdated {
                     Text("Updated \(updated, format: .relative(presentation: .named))")
                 } else {
-                    Text(store.isRefreshing ? "Loading…" : "Not updated yet")
+                    Text("Not updated yet")
                 }
             }
             .font(.caption)
@@ -256,10 +262,16 @@ private struct Footer: View {
             Spacer()
 
             Button {
-                Task { await store.refresh() }
+                userIsRefreshing = true
+                Task {
+                    await store.refresh()
+                    userIsRefreshing = false
+                }
             } label: {
+                // The icon turns only for a refresh that the user asked for with this button.
+                // A refresh on a timer, on wake, or when the panel opens leaves it still.
                 Image(systemName: "arrow.clockwise")
-                    .symbolEffect(.rotate, isActive: store.isRefreshing)
+                    .symbolEffect(.rotate, isActive: userIsRefreshing)
             }
             .help("Refresh")
             .disabled(store.isRefreshing)
