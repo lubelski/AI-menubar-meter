@@ -5,9 +5,9 @@ import SwiftUI
 /// Explains a Claude Code login problem and offers the step that fixes it.
 struct ClaudeCodeFix: View {
     let store: UsageStore
+    let account: Account
     let issue: ClaudeCodeIssue
 
-    @AppStorage(AuthPreferences.claudeSource) private var source = ClaudeAuthSource.claudeCode
     @State private var terminalFailed = false
 
     var body: some View {
@@ -61,7 +61,11 @@ struct ClaudeCodeFix: View {
             Button("Sign In…") { openTerminal(["auth", "login"]) }
             Button("Check Again") { Task { await store.retryClaudeCode() } }
         case .cliNotFound:
-            Button("Use Access Token") { source = .token }
+            Button("Use Access Token") {
+                var changed = account
+                changed.credential = .pasted
+                store.update(changed)
+            }
             Button("Check Again") { Task { await store.retryClaudeCode() } }
         }
     }

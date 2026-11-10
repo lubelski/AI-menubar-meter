@@ -21,30 +21,28 @@ struct ClaudeParsingTests {
     """.utf8)
 
     @Test func parsesWindows() throws {
-        let usage = try #require(ClaudeProvider.parse(json))
-        #expect(usage.session?.fraction == 0.42)
-        #expect(usage.weekly?.fraction == 0.08)
-        #expect(usage.session?.duration == 18_000.0)
-        #expect(usage.session?.resetsAt == Date(timeIntervalSince1970: 1_793_702_400))
+        let reading = try #require(ClaudeProvider.parse(json))
+        #expect(reading.tank(.session)?.used == 0.42)
+        #expect(reading.tank(.weekly)?.used == 0.08)
+        #expect(reading.tank(.session)?.duration == 18_000.0)
+        #expect(reading.tank(.session)?.resetsAt == Date(timeIntervalSince1970: 1_793_702_400))
     }
 
     @Test func findsDollarCreditRegardlessOfKeyName() throws {
-        let credit = try #require(ClaudeProvider.parse(json)?.credit)
-        #expect(credit.used == 115.44)
-        #expect(credit.limit == 250)
-        #expect(abs(credit.fraction - 0.46176) < 0.0001)
+        let credit = try #require(ClaudeProvider.parse(json)?.tank(.pool))
+        #expect(credit.dollars == Dollars(used: 115.44, limit: 250))
+        #expect(abs(credit.used - 0.46176) < 0.0001)
         #expect(credit.resetsAt == Date(timeIntervalSince1970: 1793865540))
     }
 
     @Test func parsesScopedWeeklyLimits() throws {
-        let scoped = try #require(ClaudeProvider.parse(json)).scopedWeekly
+        let scoped = try #require(ClaudeProvider.parse(json)).scoped
         #expect(scoped == [ScopedLimit(name: "Opus", fraction: 0.11)])
     }
 
     @Test func toleratesMissingFields() throws {
-        let usage = try #require(ClaudeProvider.parse(Data("{}".utf8)))
-        #expect(usage.session == nil)
-        #expect(usage.credit == nil)
+        let reading = try #require(ClaudeProvider.parse(Data("{}".utf8)))
+        #expect(reading.tanks.isEmpty)
     }
 }
 
@@ -60,11 +58,11 @@ struct CodexParsingTests {
           }
         }
         """.utf8)
-        let usage = try #require(CodexProvider.parse(json))
-        #expect(usage.plan == "Plus")
-        #expect(usage.session?.fraction == 0.32)
-        #expect(usage.weekly?.duration == 604_800)
-        #expect(usage.weekly?.resetsAt == Date(timeIntervalSince1970: 1_794_084_956))
+        let reading = try #require(CodexProvider.parse(json))
+        #expect(reading.plan == "Plus")
+        #expect(reading.tank(.session)?.used == 0.32)
+        #expect(reading.tank(.weekly)?.duration == 604_800)
+        #expect(reading.tank(.weekly)?.resetsAt == Date(timeIntervalSince1970: 1_794_084_956))
     }
 }
 
@@ -77,12 +75,15 @@ struct DerivedValueTests {
 
     @Test func elapsedFraction() {
         let now = Date(timeIntervalSince1970: 0)
-        let window = UsageWindow(fraction: 0.5, resetsAt: now.addingTimeInterval(3600), duration: 4 * 3600)
-        #expect(window.elapsedFraction(now: now) == 0.75)
+        let tank = Tank(kind: .session, title: "Session", used: 0.5,
+                        resetsAt: now.addingTimeInterval(3600), duration: 4 * 3600)
+        #expect(tank.elapsedFraction(now: now) == 0.75)
     }
 
     @Test func clampsFraction() {
-        #expect(UsageWindow(fraction: 1.4, resetsAt: nil, duration: nil).fraction == 1)
+        let tank = Tank(kind: .weekly, title: "Weekly", used: 1.4)
+        #expect(tank.used == 1)
+        #expect(tank.remaining == 0)
     }
 
     @Test func shortResetText() {
@@ -90,18 +91,6 @@ struct DerivedValueTests {
         #expect(ResetText.string(for: now.addingTimeInterval(4 * 3600 + 12 * 60), now: now) == "Resets in 4h 12m")
         #expect(ResetText.string(for: now.addingTimeInterval(30), now: now) == "Resets in 1m")
         #expect(ResetText.string(for: now.addingTimeInterval(-5), now: now) == "Resetting…")
-    }
-}
-
-@Suite("Meter style")
-struct MeterStyleTests {
-    @Test func usedShowsUsage() {
-        #expect(MeterStyle.used.displayed(0.55) == 0.55)
-    }
-
-    @Test func remainingShowsWhatIsLeft() {
-        #expect(abs(MeterStyle.remaining.displayed(0.55) - 0.45) < 1e-9)
-        #expect(MeterStyle.remaining.displayed(0) == 1)
     }
 }
 

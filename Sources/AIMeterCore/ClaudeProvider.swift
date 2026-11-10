@@ -4,12 +4,12 @@ import Foundation
 public struct ClaudeProvider: Sendable {
     public init() {}
 
-    public func fetch(_ config: AuthConfig) async throws(ProviderError) -> ClaudeUsage {
-        var (token, plan) = try await Credentials.claudeAccessToken(config)
+    public func fetch(_ account: Account, secrets: any SecretStore) async throws(ProviderError) -> Reading {
+        var (token, plan) = try await Credentials.claudeAccessToken(account, secrets: secrets)
         let data: Data
         do {
             data = try await Self.get(token)
-        } catch .sessionExpired where config.claudeSource == .claudeCode {
+        } catch .sessionExpired where account.credential == .cli {
             // Claude Code may have rotated its token, or the server revoked it early.
             // Let the CLI refresh it, then try once more.
             let login = try await Credentials.claudeCodeLogin(rejecting: token)
@@ -20,9 +20,9 @@ public struct ClaudeProvider: Sendable {
                 throw .claudeCode(.refreshFailed)
             }
         }
-        guard var usage = Self.parse(data) else { throw .unexpectedResponse }
-        usage.plan = plan?.capitalized
-        return usage
+        guard var reading = Self.parse(data) else { throw .unexpectedResponse }
+        reading.plan = plan?.capitalized
+        return reading
     }
 
     private static func get(_ token: String) async throws(ProviderError) -> Data {
@@ -35,7 +35,7 @@ public struct ClaudeProvider: Sendable {
         )
     }
 
-    static func parse(_ data: Data) -> ClaudeUsage? {
+    static func parse(_ data: Data) -> Reading? {
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
 
         let scoped = (response.limits ?? [])
@@ -50,19 +50,20 @@ public struct ClaudeProvider: Sendable {
         let credit = response.dollarWindows
             .sorted { $0.key < $1.key }
             .lazy
-            .compactMap { _, window -> CreditUsage? in
+            .compactMap { _, window -> Tank? in
                 guard let limit = window.limit_dollars, limit > 0 else { return nil }
-                return CreditUsage(used: window.used_dollars ?? 0, limit: limit, resetsAt: window.resetDate)
+                let dollars = Dollars(used: window.used_dollars ?? 0, limit: limit)
+                return Tank(kind: .pool, title: "API credit", used: dollars.fraction,
+                            resetsAt: window.resetDate, dollars: dollars)
             }
             .first
 
-        return ClaudeUsage(
-            plan: nil,
-            session: response.five_hour?.usageWindow(duration: 5 * 3600),
-            weekly: response.seven_day?.usageWindow(duration: 7 * 86400),
-            scopedWeekly: scoped,
-            credit: credit
-        )
+        let tanks = [
+            response.five_hour?.tank(.session, title: "Session", duration: 5 * 3600),
+            response.seven_day?.tank(.weekly, title: "Weekly", duration: 7 * 86400),
+            credit,
+        ]
+        return Reading(tanks: tanks.compactMap(\.self), scoped: scoped)
     }
 
     // MARK: Wire format
@@ -75,9 +76,9 @@ public struct ClaudeProvider: Sendable {
 
         var resetDate: Date? { resets_at.flatMap(Timestamp.parse) }
 
-        func usageWindow(duration: TimeInterval) -> UsageWindow? {
+        func tank(_ kind: Tank.Kind, title: String, duration: TimeInterval) -> Tank? {
             guard let utilization else { return nil }
-            return UsageWindow(fraction: utilization / 100, resetsAt: resetDate, duration: duration)
+            return Tank(kind: kind, title: title, used: utilization / 100, resetsAt: resetDate, duration: duration)
         }
     }
 

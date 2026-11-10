@@ -5,8 +5,10 @@ import Foundation
 public struct AnthropicCostProvider: Sendable {
     public init() {}
 
-    public func fetch(_ config: AuthConfig, now: Date = .now) async throws(ProviderError) -> CreditUsage {
-        guard let key = config.adminKey else { throw .notSignedIn }
+    public func fetch(
+        _ account: Account, secrets: any SecretStore, now: Date = .now
+    ) async throws(ProviderError) -> Reading {
+        guard let key = secrets.read(account.secretKey) else { throw .notSignedIn }
 
         let (monthStart, nextMonth) = Self.utcMonth(containing: now)
         var spentCents = 0.0
@@ -33,7 +35,10 @@ public struct AnthropicCostProvider: Sendable {
             page = report.nextPage
         } while page != nil
 
-        return CreditUsage(used: spentCents / 100, limit: config.monthlyBudget, resetsAt: nextMonth)
+        let dollars = Dollars(used: spentCents / 100, limit: account.monthlyBudget ?? Account.defaultMonthlyBudget)
+        return Reading(tanks: [
+            Tank(kind: .pool, title: "This month", used: dollars.fraction, resetsAt: nextMonth, dollars: dollars),
+        ])
     }
 
     /// Sum of every cost item, in cents, plus the cursor for the next page.

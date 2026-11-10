@@ -2,101 +2,122 @@ import AIMeterCore
 import AppKit
 import SwiftUI
 
-/// Mail-style accounts pane: services on the left, the selected one's settings on the right.
+/// Mail-style accounts pane: the accounts on the left, the selected one's settings on the right.
+/// The list holds any number of accounts of each kind. Drag a row to reorder the menu bar.
 struct AccountsSettingsView: View {
     let store: UsageStore
-    @State private var selection: Service = .claude
+    @State private var selection: Account.ID?
+    @State private var isConfirmingRemoval = false
+
+    private var selected: AccountState? {
+        selection.flatMap(store.state(for:))
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            // A bordered list (as in Mail's Accounts pane) rather than a sidebar, so it
-            // doesn't extend under the toolbar and change how the tab bar looks.
-            List(Service.allCases, selection: $selection) { service in
-                AccountRow(service: service, connection: Connection(service, store: store))
-                    .tag(service)
+            VStack(spacing: 0) {
+                // A bordered list (as in Mail's Accounts pane) rather than a sidebar, so it
+                // doesn't extend under the toolbar and change how the tab bar looks.
+                List(selection: $selection) {
+                    ForEach(store.states) { state in
+                        AccountRow(state: state, connection: Connection(state, store: store))
+                            .tag(state.id)
+                    }
+                    .onMove { store.moveAccounts(fromOffsets: $0, toOffset: $1) }
+                }
+                .listStyle(.bordered)
+
+                HStack(spacing: 0) {
+                    Menu {
+                        ForEach(AccountKind.allCases) { kind in
+                            Button(kind.title) { selection = store.addAccount(kind).id }
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Add an account")
+
+                    Button {
+                        isConfirmingRemoval = true
+                    } label: {
+                        Image(systemName: "minus")
+                    }
+                    .disabled(selected == nil)
+                    .help("Remove the selected account")
+
+                    Spacer()
+                }
+                .buttonStyle(.borderless)
+                .padding(.top, 6)
             }
-            .listStyle(.bordered)
             .frame(width: 200)
             .padding([.leading, .vertical], 20)
 
             Group {
-                switch selection {
-                case .claude: ClaudeAccountForm(store: store)
-                case .openAI: OpenAIAccountForm(store: store)
-                case .apiCredit: CreditAccountForm(store: store)
+                if let selected {
+                    AccountForm(store: store, state: selected)
+                        // Fields keep local text while editing. A new identity resets them per account.
+                        .id(selected.id)
+                } else {
+                    ContentUnavailableView(
+                        store.states.isEmpty ? "No Accounts" : "No Account Selected",
+                        systemImage: "person.crop.circle",
+                        description: Text(store.states.isEmpty ? "Click + to add one." : ""))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear { selection = selection ?? store.states.first?.id }
+        .confirmationDialog(
+            "Remove “\(selected?.account.name ?? "")”?", isPresented: $isConfirmingRemoval
+        ) {
+            Button("Remove", role: .destructive) {
+                guard let id = selection else { return }
+                store.removeAccount(id)
+                selection = store.states.first?.id
+            }
+        } message: {
+            Text("AI Meter forgets this account and deletes any token stored for it. The service's own login is not affected.")
         }
     }
 }
 
 // MARK: - Connection state
 
-/// What the sidebar and status section show for one service.
+/// What the list and the status section show for one account.
 private struct Connection {
-    enum State { case connected, failed(ProviderError), checking, unknown }
-
-    var state: State
-    var updatedAt: Date?
+    var text: String
+    var color: Color
 
     @MainActor
-    init(_ service: Service, store: UsageStore) {
-        let (error, updatedAt): (ProviderError?, Date?) = switch service {
-        case .claude: (store.claude.error, store.claude.updatedAt)
-        case .openAI: (store.codex.error, store.codex.updatedAt)
-        case .apiCredit: (store.credit.error, store.credit.updatedAt)
-        }
-        self.updatedAt = updatedAt
-        if let error {
-            state = .failed(error)
-        } else if updatedAt != nil {
-            state = .connected
+    init(_ state: AccountState, store: UsageStore) {
+        if let error = state.error {
+            text = error.message
+            color = error.needsAttention ? .red : .orange
+        } else if state.readAt != nil {
+            text = "Connected"
+            color = .green
         } else {
-            state = store.isRefreshing ? .checking : .unknown
-        }
-    }
-
-    var text: String {
-        switch state {
-        case .connected: "Connected"
-        case .failed(let error): error.message
-        case .checking: "Checking…"
-        case .unknown: "Not checked"
-        }
-    }
-
-    var color: Color {
-        switch state {
-        case .connected: .green
-        case .failed(.rateLimited), .failed(.network): .orange
-        case .failed: .red
-        case .checking, .unknown: .secondary
-        }
-    }
-}
-
-private extension Service {
-    var systemImage: String {
-        switch self {
-        case .claude: "sparkle"
-        case .openAI: "hexagon"
-        case .apiCredit: "dollarsign.circle"
+            text = store.isRefreshing ? "Checking…" : "Not checked"
+            color = .secondary
         }
     }
 }
 
 private struct AccountRow: View {
-    let service: Service
+    let state: AccountState
     let connection: Connection
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: service.systemImage)
+            Image(nsImage: BrandMark.image(state.account.kind.brand, size: 14))
                 .frame(width: 18)
+                .opacity(state.account.isVisible ? 1 : 0.4)
             VStack(alignment: .leading, spacing: 1) {
-                Text(service.title)
-                Text(connection.text)
+                Text(state.account.name)
+                Text(state.account.isVisible ? connection.text : "Hidden")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -109,99 +130,140 @@ private struct AccountRow: View {
     }
 }
 
-// MARK: - Forms
+// MARK: - Form
 
-private struct ClaudeAccountForm: View {
+/// Settings for one account: its label, how it signs in, and whether that works.
+private struct AccountForm: View {
     let store: UsageStore
-    @AppStorage(AuthPreferences.claudeSource) private var source = ClaudeAuthSource.claudeCode
+    let state: AccountState
 
-    var body: some View {
-        Form {
-            Section {
-                Picker("Sign in with", selection: $source) {
-                    Text("Claude Code").tag(ClaudeAuthSource.claudeCode)
-                    Text("Access token").tag(ClaudeAuthSource.token)
-                }
-                switch source {
-                case .claudeCode:
-                    LabeledContent("Login", value: "Claude Code, in your Keychain")
-                case .token:
-                    SecretField(title: "Token", secret: .claudeToken, prompt: "sk-ant-oat01-…") { refresh() }
-                }
-            } footer: {
-                Footnote(source == .claudeCode
-                    ? "Uses the login from the `claude` command. When it expires, AI Meter asks Claude Code to refresh it. To switch accounts, run `claude auth login`."
-                    : "A Claude OAuth access token. It's stored in your Keychain.")
-            }
+    private var account: Account { state.account }
 
-            StatusSection(store: store, connection: Connection(.claude, store: store)) {
-                if let issue = store.claude.error?.claudeCodeIssue {
-                    ClaudeCodeFix(store: store, issue: issue)
-                        .font(.callout)
-                }
-                if let plan = store.claude.value?.plan {
-                    LabeledContent("Plan", value: plan)
-                }
-            }
+    /// A binding that saves each change to the store.
+    private func binding<Value>(_ keyPath: WritableKeyPath<Account, Value>) -> Binding<Value> {
+        Binding {
+            account[keyPath: keyPath]
+        } set: { value in
+            var changed = account
+            changed[keyPath: keyPath] = value
+            store.update(changed)
         }
-        .formStyle(.grouped)
-        .onChange(of: source) { refresh() }
     }
 
-    private func refresh() { Task { await store.refresh() } }
-}
-
-private struct OpenAIAccountForm: View {
-    let store: UsageStore
-    @AppStorage(AuthPreferences.openAISource) private var source = OpenAIAuthSource.codexCLI
-    @AppStorage(AuthPreferences.codexHome) private var codexHome = AuthPreferences.defaultCodexHome
-    @AppStorage(AuthPreferences.openAIAccountID) private var accountID = ""
-
     var body: some View {
         Form {
             Section {
-                Picker("Sign in with", selection: $source) {
-                    Text("Codex CLI").tag(OpenAIAuthSource.codexCLI)
-                    Text("Access token").tag(OpenAIAuthSource.token)
-                }
-                switch source {
-                case .codexCLI:
-                    LabeledContent("Codex folder") {
-                        HStack {
-                            Text((codexHome as NSString).abbreviatingWithTildeInPath)
-                                .truncationMode(.middle)
-                                .lineLimit(1)
-                                .foregroundStyle(.secondary)
-                            Button("Choose…", action: chooseFolder)
-                        }
-                    }
-                    if codexHome != AuthPreferences.defaultCodexHome {
-                        LabeledContent("") {
-                            Button("Use Default Folder") {
-                                codexHome = AuthPreferences.defaultCodexHome
-                                refresh()
-                            }
-                        }
-                    }
-                case .token:
-                    SecretField(title: "Access token", secret: .openAIToken, prompt: "eyJ…") { refresh() }
-                    TextField("Account ID", text: $accountID, prompt: Text("Optional"))
-                        .onSubmit(refresh)
-                }
-            } footer: {
-                Footnote(source == .codexCLI
-                    ? "Uses the ChatGPT login from `codex login`. Run it again to switch accounts."
-                    : "A ChatGPT access token. It's stored in your Keychain. Add the account ID if you're in a Team or Enterprise workspace.")
+                TextField("Name", text: binding(\.name))
+                Toggle("Show in menu bar and panel", isOn: binding(\.isVisible))
             }
 
-            StatusSection(store: store, connection: Connection(.openAI, store: store)) {
-                if let plan = store.codex.value?.plan {
+            Section {
+                signIn
+            } footer: {
+                SettingsFootnote(signInNote)
+            }
+
+            Section {
+                let connection = Connection(state, store: store)
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        Circle().fill(connection.color).frame(width: 7, height: 7)
+                        Text(connection.text)
+                        Button("Check Now") { Task { await store.refresh() } }
+                            .disabled(store.isRefreshing)
+                            .padding(.leading, 6)
+                    }
+                }
+                if let issue = state.error?.claudeCodeIssue {
+                    ClaudeCodeFix(store: store, account: account, issue: issue)
+                        .font(.callout)
+                }
+                if let plan = state.reading?.plan {
                     LabeledContent("Plan", value: plan)
+                }
+                if let readAt = state.readAt {
+                    LabeledContent("Last reading") {
+                        Text(readAt, format: .relative(presentation: .named))
+                    }
                 }
             }
         }
         .formStyle(.grouped)
-        .onChange(of: source) { refresh() }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    // MARK: Sign-in fields
+
+    @ViewBuilder
+    private var signIn: some View {
+        if account.kind.credentialSources.count > 1 {
+            Picker("Sign in with", selection: binding(\.credential)) {
+                ForEach(account.kind.credentialSources) { source in
+                    Text(title(of: source)).tag(source)
+                }
+            }
+        }
+        switch (account.kind, account.credential) {
+        case (.claude, .cli):
+            LabeledContent("Login", value: "Claude Code, in your Keychain")
+        case (.claude, .pasted):
+            SecretField(title: "Token", prompt: "sk-ant-oat01-…", store: store, account: account)
+        case (.codex, .cli):
+            CodexFolderRow(codexHome: binding(\.codexHome))
+        case (.codex, .pasted):
+            SecretField(title: "Access token", prompt: "eyJ…", store: store, account: account)
+            CommittedTextField(title: "Account ID", prompt: "Optional", value: binding(\.chatGPTAccountID))
+        case (.anthropicAPI, _):
+            SecretField(title: "Admin API key", prompt: "sk-ant-admin01-…", store: store, account: account)
+            TextField("Monthly budget", value: binding(\.monthlyBudget),
+                      format: .currency(code: "USD").precision(.fractionLength(0)))
+        }
+    }
+
+    private func title(of source: CredentialSource) -> String {
+        switch (account.kind, source) {
+        case (.claude, .cli): "Claude Code"
+        case (.codex, .cli): "Codex CLI"
+        case (_, .cli): "Command-line login"
+        case (_, .pasted): "Access token"
+        }
+    }
+
+    private var signInNote: String {
+        switch (account.kind, account.credential) {
+        case (.claude, .cli):
+            "Uses the login from the `claude` command. When it expires, AI Meter asks Claude Code to refresh it. Claude Code keeps one login per Mac, so a second Claude account needs an access token."
+        case (.claude, .pasted):
+            "A Claude OAuth access token. It's stored in your Keychain."
+        case (.codex, .cli):
+            "Uses the ChatGPT login from `codex login`. For a second OpenAI account, sign in with `CODEX_HOME` set to another folder and choose that folder here."
+        case (.codex, .pasted):
+            "A ChatGPT access token. It's stored in your Keychain. Add the account ID if you're in a Team or Enterprise workspace."
+        case (.anthropicAPI, _):
+            "Your organization's month-to-date API spend, measured against this budget. Create an Admin key in [Claude Console](https://platform.claude.com) under Settings → Admin keys."
+        }
+    }
+}
+
+// MARK: - Shared pieces
+
+private struct CodexFolderRow: View {
+    /// `nil` means the default folder.
+    @Binding var codexHome: String?
+
+    var body: some View {
+        LabeledContent("Codex folder") {
+            HStack {
+                Text(((codexHome ?? Account.defaultCodexHome) as NSString).abbreviatingWithTildeInPath)
+                    .truncationMode(.middle)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                if codexHome != nil {
+                    Button("Use Default") { codexHome = nil }
+                }
+                Button("Choose…", action: chooseFolder)
+            }
+        }
     }
 
     private func chooseFolder() {
@@ -209,102 +271,50 @@ private struct OpenAIAccountForm: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.showsHiddenFiles = true // ~/.codex is hidden
-        panel.directoryURL = URL(fileURLWithPath: codexHome)
+        panel.directoryURL = URL(fileURLWithPath: codexHome ?? Account.defaultCodexHome)
         panel.message = "Choose the folder that contains Codex's auth.json"
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        codexHome = url.path(percentEncoded: false)
-        refresh()
+        let path = url.path(percentEncoded: false)
+        codexHome = path == Account.defaultCodexHome ? nil : path
     }
-
-    private func refresh() { Task { await store.refresh() } }
 }
 
-private struct CreditAccountForm: View {
-    let store: UsageStore
-    @AppStorage(AuthPreferences.creditSource) private var source = CreditSource.claudePlan
-    @AppStorage(AuthPreferences.monthlyBudget) private var budget = 100.0
+/// A text field that saves on Return or when focus leaves it, so a half-typed
+/// value never triggers a fetch. An empty field saves `nil`.
+private struct CommittedTextField: View {
+    let title: String
+    let prompt: String
+    @Binding var value: String?
 
-    private let dollars = FloatingPointFormatStyle<Double>.Currency(code: "USD").precision(.fractionLength(0))
+    @State private var text = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Source", selection: $source) {
-                    Text("Claude plan credit").tag(CreditSource.claudePlan)
-                    Text("Anthropic Console").tag(CreditSource.adminKey)
-                }
-                if source == .adminKey {
-                    SecretField(title: "Admin API key", secret: .anthropicAdminKey, prompt: "sk-ant-admin01-…") {
-                        refresh()
-                    }
-                    TextField("Monthly budget", value: $budget, format: dollars)
-                        .onSubmit(refresh)
-                }
-            } footer: {
-                if source == .claudePlan {
-                    Footnote("The API credit included with your Claude plan, read with your Claude sign-in.")
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Footnote("Your organization's month-to-date API spend, measured against this budget. Create an Admin key in Claude Console under Settings → Admin keys.")
-                        Link("Open Claude Console", destination: URL(string: "https://platform.claude.com")!)
-                            .font(.caption)
-                    }
-                }
+        TextField(title, text: $text, prompt: Text(prompt))
+            .focused($isFocused)
+            .onAppear { text = value ?? "" }
+            .onSubmit(save)
+            .onChange(of: isFocused) { _, focused in
+                if !focused { save() }
             }
-
-            StatusSection(store: store, connection: Connection(.apiCredit, store: store)) {
-                if let credit = store.credit.value {
-                    LabeledContent("Used", value: "\(credit.used.formatted(dollars)) of \(credit.limit.formatted(dollars))")
-                } else if store.credit.isConnected {
-                    LabeledContent("Used", value: "No API credit on this plan")
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .onChange(of: source) { refresh() }
-        .onChange(of: budget) { refresh() }
+            .onDisappear(perform: save)
     }
 
-    private func refresh() { Task { await store.refresh() } }
-}
-
-// MARK: - Shared pieces
-
-private struct StatusSection<Details: View>: View {
-    let store: UsageStore
-    let connection: Connection
-    @ViewBuilder let details: Details
-
-    var body: some View {
-        Section {
-            LabeledContent("Status") {
-                HStack(spacing: 6) {
-                    Circle().fill(connection.color).frame(width: 7, height: 7)
-                    Text(connection.text)
-                }
-            }
-            details
-            if let updatedAt = connection.updatedAt {
-                LabeledContent("Last checked") {
-                    Text(updatedAt, format: .relative(presentation: .named))
-                }
-            }
-            LabeledContent("") {
-                Button("Check Now") { Task { await store.refresh() } }
-                    .disabled(store.isRefreshing)
-            }
-        }
+    private func save() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let new = trimmed.isEmpty ? nil : trimmed
+        if new != value { value = new }
     }
 }
 
-/// A secure field backed by AI Meter's Keychain item. Saves on Return or when
-/// focus leaves the field; clearing it removes the item.
+/// A secure field backed by the account's Keychain item. Saves on Return or when
+/// focus leaves the field. Clearing it removes the item.
 private struct SecretField: View {
     let title: String
-    let secret: Secret
     let prompt: String
-    let onSave: () -> Void
+    let store: UsageStore
+    let account: Account
 
     @State private var value = ""
     @State private var saved = ""
@@ -314,7 +324,7 @@ private struct SecretField: View {
         SecureField(title, text: $value, prompt: Text(prompt))
             .focused($isFocused)
             .onAppear {
-                value = Keychain.read(secret) ?? ""
+                value = store.secret(for: account)
                 saved = value
             }
             .onSubmit(save)
@@ -326,22 +336,7 @@ private struct SecretField: View {
 
     private func save() {
         guard value != saved else { return }
-        Keychain.write(value, for: secret)
         saved = value
-        onSave()
-    }
-}
-
-private struct Footnote: View {
-    let text: String
-
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(LocalizedStringKey(text))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        store.setSecret(value, for: account)
     }
 }

@@ -4,55 +4,16 @@ import SwiftUI
 struct UsagePanel: View {
     let store: UsageStore
 
-    @AppStorage(Service.claude.visibilityKey) private var showClaude = true
-    @AppStorage(Service.openAI.visibilityKey) private var showOpenAI = true
-    @AppStorage(Service.apiCredit.visibilityKey) private var showAPICredit = true
-    @AppStorage(AuthPreferences.creditSource) private var creditSource = CreditSource.claudePlan
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if showClaude {
-                ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error, brand: .anthropic, link: UsagePage.claude) {
-                    if let issue = store.claude.error?.claudeCodeIssue {
-                        ClaudeCodeFix(store: store, issue: issue)
-                    }
-                    if let usage = store.claude.value {
-                        HStack(alignment: .top, spacing: 12) {
-                            WindowRow(title: "Session", kind: .session, window: usage.session)
-                            WindowRow(title: "Weekly", kind: .weekly, window: usage.weekly)
-                        }
-                        ForEach(usage.scopedWeekly, id: \.name) { limit in
-                            ScopedRow(limit: limit)
-                        }
-                    }
-                }
+            if store.visibleStates.isEmpty {
+                NoAccounts(hasHiddenAccounts: !store.states.isEmpty)
                 Divider()
             }
-
-            if showAPICredit {
-                ProviderSection(title: "API Credit", plan: nil, error: store.credit.error, brand: .anthropic, link: UsagePage.credit(creditSource)) {
-                    if let credit = store.credit.value {
-                        CreditRow(credit: credit)
-                    } else if store.credit.isConnected {
-                        Text("No API credit on this plan")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            ForEach(store.visibleStates) { state in
+                AccountSection(store: store, state: state)
                 Divider()
             }
-
-            if showOpenAI {
-                ProviderSection(title: "OpenAI", plan: store.codex.value?.plan, error: store.codex.error, brand: .openAI, link: UsagePage.codex) {
-                    if let usage = store.codex.value {
-                        HStack(alignment: .top, spacing: 12) {
-                            WindowRow(title: "Session", kind: .session, window: usage.session)
-                            WindowRow(title: "Weekly", kind: .weekly, window: usage.weekly)
-                        }
-                    }
-                }
-                Divider()
-            }
-
             Footer(store: store)
         }
         .padding(16)
@@ -66,154 +27,162 @@ struct UsagePanel: View {
 
 // MARK: - Sections
 
-/// Web pages that show the same numbers in full, linked from each section header.
-private enum UsagePage {
-    static let claude = URL(string: "https://claude.ai/settings/usage")!
-    static let codex = URL(string: "https://chatgpt.com/codex/settings/usage")!
-    static let platformCost = URL(string: "https://platform.claude.com/cost")!
+private struct NoAccounts: View {
+    let hasHiddenAccounts: Bool
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.dismiss) private var dismiss
 
-    /// The plan's credit appears on Claude's usage page. Admin API spend is on the platform's cost page.
-    static func credit(_ source: CreditSource) -> URL {
-        source == .adminKey ? platformCost : claude
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(hasHiddenAccounts ? "All accounts are hidden" : "No accounts yet")
+                .font(.headline)
+            Text(hasHiddenAccounts
+                ? "Turn on an account's tanks in Settings."
+                : "Add a Claude, OpenAI, or Anthropic API account in Settings.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Open Settings…") {
+                dismiss()
+                NSApp.activate()
+                openSettings()
+            }
+        }
     }
 }
 
-private struct ProviderSection<Content: View>: View {
-    let title: String
-    let plan: String?
-    let error: ProviderError?
-    let brand: Brand
-    let link: URL
-    @ViewBuilder let content: Content
+/// One account: its name, its tanks, and anything the user needs to know about the reading.
+private struct AccountSection: View {
+    let store: UsageStore
+    let state: AccountState
 
     @AppStorage(Preferences.showLogos) private var showLogos = true
 
+    private var account: Account { state.account }
+
     var body: some View {
+        let condition = store.condition(of: state)
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                if showLogos {
-                    Image(nsImage: BrandMark.image(brand, size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                Text(title).font(.headline)
-                if let plan {
-                    Text(plan)
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(.quaternary, in: Capsule())
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Link(destination: link) {
-                    Image(systemName: "arrow.up.forward.square")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Open \(link.host() ?? "usage page")")
-                if let error {
-                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.orange)
-                        .help(error.message)
-                }
-            }
-            // Claude Code problems get their own explanation and buttons in `content`.
-            if let error, error.needsAttention, error.claudeCodeIssue == nil {
+            header
+
+            if let issue = state.error?.claudeCodeIssue {
+                // Claude Code problems get their own explanation and buttons.
+                ClaudeCodeFix(store: store, account: account, issue: issue)
+            } else if let error = state.error, error.needsAttention {
                 Text("\(error.message). Check Settings → Accounts.")
                     .foregroundStyle(.secondary)
             }
-            content
+
+            if state.reading != nil {
+                tanks(condition)
+                ForEach(state.reading?.scoped ?? [], id: \.name) { limit in
+                    ScopedRow(limit: limit)
+                }
+            }
+
+            StatusLine(state: state, condition: condition)
         }
         .font(.caption)
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            if showLogos {
+                Image(nsImage: BrandMark.image(account.kind.brand, size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Text(account.name).font(.headline)
+            if let plan = state.reading?.plan {
+                Text(plan)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Link(destination: account.kind.usagePage) {
+                Image(systemName: "arrow.up.forward.square")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Open \(account.kind.usagePage.host() ?? "usage page")")
+        }
+    }
+
+    /// Two tanks per row. A third tank, such as a plan's API credit, starts a second row.
+    private func tanks(_ condition: AccountState.Condition) -> some View {
+        let slots = state.slots
+        return VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(stride(from: 0, to: slots.count, by: 2)), id: \.self) { start in
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(slots[start..<min(start + 2, slots.count)]) { slot in
+                        TankRow(slot: slot, condition: condition, kind: account.kind)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Says why a reading is not current. Shows nothing while everything is fine.
+private struct StatusLine: View {
+    let state: AccountState
+    let condition: AccountState.Condition
+
+    var body: some View {
+        switch condition {
+        case .live:
+            EmptyView()
+        case .waiting:
+            Text("Loading…").foregroundStyle(.secondary)
+        case .stale:
+            if let readAt = state.readAt {
+                Label {
+                    Text("Last reading \(readAt, format: .relative(presentation: .named))\(reason)")
+                } icon: {
+                    Image(systemName: "clock.badge.exclamationmark")
+                }
+                .foregroundStyle(.secondary)
+            }
+        case .unavailable:
+            // Errors that need the user are explained above the tanks.
+            if let error = state.error, !error.needsAttention {
+                Label("\(error.message). AI Meter will try again.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The transient error behind a stale reading. Errors that need the user are explained above the tanks.
+    private var reason: String {
+        guard let error = state.error, !error.needsAttention else { return "" }
+        return " · \(error.message)"
     }
 }
 
 // MARK: - Rows
 
-private struct WindowRow: View {
-    let title: String
-    let kind: UsageGauge.Kind
-    let window: UsageWindow?
+/// A tank with its title, what is left, and a quiet caption stacked beside it.
+private struct TankRow: View {
+    let slot: TankSlot
+    let condition: AccountState.Condition
+    let kind: AccountKind
 
-    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
+    @AppStorage(Preferences.showPace) private var showPace = true
 
-    var body: some View {
-        MeterRow(
-            title: title,
-            kind: kind,
-            value: window.map { Text(percentLabel($0.fraction, style: style)) },
-            used: window?.fraction,
-            elapsed: window?.elapsedFraction(),
-            caption: window?.resetsAt.map { ResetText.string(for: $0) }
-        )
-    }
-}
-
-private struct CreditRow: View {
-    let credit: CreditUsage
-
-    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
-    @AppStorage(AuthPreferences.creditSource) private var source = CreditSource.claudePlan
+    private static let dollars = FloatingPointFormatStyle<Double>.Currency(code: "USD").precision(.fractionLength(0))
 
     var body: some View {
-        let dollars = FloatingPointFormatStyle<Double>.Currency(code: "USD").precision(.fractionLength(0))
-        let value = switch style {
-        case .used: "\(credit.used.formatted(dollars)) used"
-        case .remaining: "\(credit.remaining.formatted(dollars)) left"
-        }
-        MeterRow(
-            title: source == .adminKey ? "This month" : "This period",
-            kind: .pool,
-            value: Text(value),
-            used: credit.fraction,
-            elapsed: nil,
-            caption: ["of \(credit.limit.formatted(dollars))\(source == .adminKey ? " budget" : "")", credit.resetsAt.map { ResetText.string(for: $0) }]
-                .compactMap(\.self)
-                .joined(separator: " · ")
-        )
-    }
-}
-
-private struct ScopedRow: View {
-    let limit: ScopedLimit
-
-    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
-
-    var body: some View {
-        HStack {
-            Text("\(limit.name) only")
-            Spacer()
-            Text(percentLabel(limit.fraction, style: style))
-                .monospacedDigit()
-        }
-        .foregroundStyle(.secondary)
-    }
-}
-
-/// "55% used" or "45% left" — always explicit, so the number can't be misread.
-private func percentLabel(_ used: Double, style: MeterStyle) -> String {
-    let percent = style.displayed(used).formatted(.percent.precision(.fractionLength(0)))
-    return style == .used ? "\(percent) used" : "\(percent) left"
-}
-
-/// A vertical bar with the title, value, and a quiet caption stacked beside it.
-private struct MeterRow: View {
-    let title: String
-    let kind: UsageGauge.Kind
-    let value: Text?
-    let used: Double?
-    let elapsed: Double?
-    let caption: String?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            UsageBar(kind: kind, used: used ?? 0, elapsed: elapsed)
+        let fill = TankFill(slot, condition: condition)
+        HStack(alignment: .top, spacing: 8) {
+            TankView(fill: fill, kind: slot.kind, elapsed: showPace ? slot.tank?.elapsedFraction() : nil)
+                .animation(.smooth, value: fill)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.subheadline)
-                (value ?? Text("—"))
+                Text(slot.tank?.title ?? title).font(.subheadline)
+                Text(value)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
+                    .foregroundStyle(condition == .live ? .primary : .secondary)
                 if let caption {
                     Text(caption)
                         .font(.caption)
@@ -224,63 +193,45 @@ private struct MeterRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    /// The title for a slot that has no tank in the reading.
+    private var title: String {
+        switch slot.kind {
+        case .session: "Session"
+        case .weekly: "Weekly"
+        case .pool: "Credit"
+        }
+    }
+
+    /// Always "left", so the number can't be misread.
+    private var value: String {
+        guard let tank = slot.tank else { return "—" }
+        if let dollars = tank.dollars {
+            return "\(dollars.remaining.formatted(Self.dollars)) left"
+        }
+        return "\(tank.remaining.formatted(.percent.precision(.fractionLength(0)))) left"
+    }
+
+    private var caption: String? {
+        guard let tank = slot.tank else { return nil }
+        let reset = tank.resetsAt.map { ResetText.string(for: $0) }
+        guard let dollars = tank.dollars else { return reset }
+        let limit = "of \(dollars.limit.formatted(Self.dollars))\(kind == .anthropicAPI ? " budget" : "")"
+        return [limit, reset].compactMap(\.self).joined(separator: " · ")
+    }
 }
 
-/// Vertical bar that fills from the bottom, with an optional tick marking where the
-/// fill would be if usage were spread evenly across the window.
-///
-/// Matches the menu bar icon: widths keep its session < weekly < pool proportions,
-/// and the fill is monochrome until it turns orange or red.
-struct UsageBar: View {
-    let kind: UsageGauge.Kind
-    let used: Double
-    let elapsed: Double?
-
-    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
-    @AppStorage(Preferences.showPace) private var showPace = true
-
-    private var tint: Color {
-        switch UsageLevel(fraction: used) {
-        case .normal: .primary
-        case .warning: .orange
-        case .critical: .red
-        }
-    }
-
-    /// Twice the menu bar widths (3, 4.5, 7 pt).
-    private var width: CGFloat {
-        switch kind {
-        case .session: 6
-        case .weekly: 9
-        case .pool: 14
-        }
-    }
-
-    /// Thin bars are full pills. The wide pool bar gets softer corners, like a tank.
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: min(width / 2, 5), style: .continuous)
-    }
+private struct ScopedRow: View {
+    let limit: ScopedLimit
 
     var body: some View {
-        let fraction = style.displayed(used)
-        GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
-                shape.fill(.primary.opacity(0.18))
-                shape
-                    .fill(tint)
-                    .frame(height: fraction > 0 ? max(proxy.size.height * fraction, 8) : 0)
-                if showPace, let elapsed {
-                    let pace = style.displayed(elapsed)
-                    RoundedRectangle(cornerRadius: 0.75)
-                        .fill(.primary.opacity(0.55))
-                        .frame(width: proxy.size.width + 4, height: 1.5)
-                        .offset(y: -(proxy.size.height * pace - 0.75))
-                        .help("Even pace: \(Int((elapsed * 100).rounded()))% of the window has elapsed")
-                }
-            }
+        HStack {
+            Text("\(limit.name) only")
+            Spacer()
+            Text("\((1 - limit.fraction).formatted(.percent.precision(.fractionLength(0)))) left")
+                .monospacedDigit()
         }
-        .frame(width: width, height: 64)
-        .animation(.smooth, value: fraction)
+        .foregroundStyle(.secondary)
     }
 }
 
