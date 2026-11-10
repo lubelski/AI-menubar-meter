@@ -1,21 +1,48 @@
 import Foundation
 
-/// A rate-limit window such as "5-hour session" or "7-day weekly".
-public struct UsageWindow: Sendable, Equatable {
-    /// Portion of the window's allowance consumed, clamped to `0...1`.
-    public var fraction: Double
+/// One allowance that drains as the account is used: a rate-limit window or a pool of dollars.
+public struct Tank: Sendable, Equatable, Identifiable {
+    /// Short windows draw thinnest and money pools widest, so the shape alone tells them apart.
+    /// Case order is display order.
+    public enum Kind: Int, Sendable, Comparable, CaseIterable {
+        case session, weekly, pool
+
+        public static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    public var kind: Kind
+    /// "Session", "Weekly", "API credit".
+    public var title: String
+    /// Portion of the allowance consumed, clamped to `0...1`.
+    public var used: Double
     public var resetsAt: Date?
     /// Total length of the window, when known. Used to compute pace.
     public var duration: TimeInterval?
+    /// The allowance in dollars, for pools.
+    public var dollars: Dollars?
 
-    public init(fraction: Double, resetsAt: Date?, duration: TimeInterval?) {
-        self.fraction = min(max(fraction, 0), 1)
+    /// A reading has at most one tank of each kind.
+    public var id: Kind { kind }
+
+    public init(
+        kind: Kind, title: String, used: Double,
+        resetsAt: Date? = nil, duration: TimeInterval? = nil, dollars: Dollars? = nil
+    ) {
+        self.kind = kind
+        self.title = title
+        self.used = min(max(used, 0), 1)
         self.resetsAt = resetsAt
         self.duration = duration
+        self.dollars = dollars
     }
 
+    /// Portion of the allowance left. This is the level the tank draws.
+    public var remaining: Double { 1 - used }
+
+    public var level: UsageLevel { UsageLevel(fraction: used) }
+
     /// How far through the window we are in time (`0...1`), or `nil` if unknown.
-    /// Comparing this with `fraction` tells you whether usage is ahead of pace.
+    /// Comparing this with `used` tells you whether usage is ahead of an even pace.
     public func elapsedFraction(now: Date = .now) -> Double? {
         guard let resetsAt, let duration, duration > 0 else { return nil }
         let remaining = resetsAt.timeIntervalSince(now)
@@ -24,15 +51,13 @@ public struct UsageWindow: Sendable, Equatable {
 }
 
 /// A dollar-denominated allowance, e.g. the API credit bundled with a Claude plan.
-public struct CreditUsage: Sendable, Equatable {
+public struct Dollars: Sendable, Equatable {
     public var used: Double
     public var limit: Double
-    public var resetsAt: Date?
 
-    public init(used: Double, limit: Double, resetsAt: Date?) {
+    public init(used: Double, limit: Double) {
         self.used = used
         self.limit = limit
-        self.resetsAt = resetsAt
     }
 
     public var remaining: Double { max(limit - used, 0) }
@@ -50,24 +75,29 @@ public struct ScopedLimit: Sendable, Equatable {
     }
 }
 
-public struct ClaudeUsage: Sendable, Equatable {
+/// Everything one fetch returned for one account.
+public struct Reading: Sendable, Equatable {
     public var plan: String?
-    public var session: UsageWindow?
-    public var weekly: UsageWindow?
-    public var scopedWeekly: [ScopedLimit]
-    public var credit: CreditUsage?
-}
+    public var tanks: [Tank]
+    public var scoped: [ScopedLimit]
 
-public struct CodexUsage: Sendable, Equatable {
-    public var plan: String?
-    public var session: UsageWindow?
-    public var weekly: UsageWindow?
+    public init(plan: String? = nil, tanks: [Tank] = [], scoped: [ScopedLimit] = []) {
+        self.plan = plan
+        self.tanks = tanks.sorted { $0.kind < $1.kind }
+        self.scoped = scoped
+    }
+
+    public func tank(_ kind: Tank.Kind) -> Tank? {
+        tanks.first { $0.kind == kind }
+    }
 }
 
 /// Severity bucket shared by the menu bar icon and the detail panel.
+/// A tank turns orange with 25% left and red with 10% left.
 public enum UsageLevel: Sendable, Equatable {
     case normal, warning, critical
 
+    /// `fraction` is the portion used.
     public init(fraction: Double) {
         switch fraction {
         case 0.9...: self = .critical
@@ -108,7 +138,7 @@ public enum ProviderError: Error, Sendable, Equatable {
         case .claudeCode(.loginExpired): "Claude Code login expired"
         case .claudeCode(.refreshFailed): "Sign-in needs a refresh"
         case .claudeCode(.cliNotFound): "Can't find Claude Code"
-        case .rateLimited: "Rate limited — will retry"
+        case .rateLimited: "Rate limited"
         case .network(let detail): detail
         case .unexpectedResponse: "Unexpected response"
         }

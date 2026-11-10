@@ -1,76 +1,123 @@
 import Foundation
 import Observation
 
-/// The latest result from one provider. A failed refresh keeps the previous
-/// value so the UI can show slightly stale numbers rather than nothing.
-public struct ProviderStatus<Value: Sendable>: Sendable {
-    public var value: Value?
-    public var error: ProviderError?
-    public var updatedAt: Date?
-
-    public var isConnected: Bool { updatedAt != nil && error == nil }
-}
-
-/// One thermometer in the menu bar.
-public struct UsageGauge: Sendable, Equatable {
-    /// Short windows draw thinnest and money pools widest, so the shape alone tells them apart.
-    public enum Kind: Sendable, Equatable {
-        case session, weekly, pool
-    }
-
-    public var label: String
-    public var kind: Kind
-    public var fraction: Double?
-
-    public init(label: String, kind: Kind, fraction: Double?) {
-        self.label = label
-        self.kind = kind
-        self.fraction = fraction
-    }
-
-    public var level: UsageLevel { UsageLevel(fraction: fraction ?? 0) }
-}
-
+/// Owns the list of accounts and the latest reading of each one.
+///
+/// The menu bar icon, the panel, and Settings all read `states`. Settings edits the
+/// list through the methods under "Accounts", which save it and refresh when needed.
 @MainActor
 @Observable
 public final class UsageStore {
-    public private(set) var claude = ProviderStatus<ClaudeUsage>()
-    public private(set) var codex = ProviderStatus<CodexUsage>()
-    /// `value == nil` with no error means the account has no API credit.
-    public private(set) var credit = ProviderStatus<CreditUsage>()
+    public typealias Fetch = @Sendable (Account) async -> Result<Reading, ProviderError>
+
+    /// One entry per account, in the user's order.
+    public private(set) var states: [AccountState]
     public private(set) var isRefreshing = false
     /// True while the user signs in to Claude Code in Terminal and AI Meter watches for the new login.
     public private(set) var isWaitingForClaudeCode = false
+    /// How often the store polls. A reading older than `staleAfter` counts as stale.
+    public private(set) var interval: Duration
 
-    @ObservationIgnored private var interval: Duration
+    @ObservationIgnored private let repository: AccountRepository
+    @ObservationIgnored private let fetch: Fetch
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRefresh = false
     @ObservationIgnored private var claudeCodeWatch: Task<Void, Never>?
 
-    public init(interval: Duration = .seconds(300)) {
+    /// - Parameter fetch: Reads one account. Tests pass a stub. The default uses the real providers.
+    public init(
+        repository: AccountRepository = AccountRepository(),
+        interval: Duration = .seconds(300),
+        fetch: Fetch? = nil
+    ) {
+        self.repository = repository
         self.interval = interval
+        self.fetch = fetch ?? { account in await Providers.fetch(account, secrets: KeychainSecrets()) }
+        self.states = repository.load().map(AccountState.init)
     }
 
-    /// Menu bar gauges for one service, as used fractions.
-    public func gauges(for service: Service) -> [UsageGauge] {
-        switch service {
-        case .claude:
-            [
-                UsageGauge(label: "Claude session", kind: .session, fraction: claude.value?.session?.fraction),
-                UsageGauge(label: "Claude weekly", kind: .weekly, fraction: claude.value?.weekly?.fraction),
-            ]
-        case .openAI:
-            [
-                UsageGauge(label: "OpenAI session", kind: .session, fraction: codex.value?.session?.fraction),
-                UsageGauge(label: "OpenAI weekly", kind: .weekly, fraction: codex.value?.weekly?.fraction),
-            ]
-        case .apiCredit:
-            [UsageGauge(label: "API credit", kind: .pool, fraction: credit.value?.fraction)]
-        }
+    public var accounts: [Account] { states.map(\.account) }
+
+    /// The accounts shown in the menu bar and the panel.
+    public var visibleStates: [AccountState] { states.filter(\.account.isVisible) }
+
+    public func state(for id: Account.ID) -> AccountState? {
+        states.first { $0.id == id }
+    }
+
+    /// Two missed polls, plus a minute of slack for a slow fetch.
+    public var staleAfter: TimeInterval {
+        2 * TimeInterval(interval.components.seconds) + 60
+    }
+
+    public func condition(of state: AccountState, now: Date = .now) -> AccountState.Condition {
+        state.condition(now: now, staleAfter: staleAfter)
     }
 
     public var lastUpdated: Date? {
-        [claude.updatedAt, codex.updatedAt, credit.updatedAt].compactMap(\.self).max()
+        states.compactMap(\.readAt).max()
+    }
+
+    // MARK: Accounts
+
+    @discardableResult
+    public func addAccount(_ kind: AccountKind) -> Account {
+        // "OpenAI", then "OpenAI 2", so two accounts of one kind can be told apart.
+        let count = states.count { $0.account.kind == kind }
+        let account = Account(kind: kind, name: count == 0 ? kind.title : "\(kind.title) \(count + 1)")
+        states.append(AccountState(account: account))
+        save()
+        refreshSoon()
+        return account
+    }
+
+    /// Replaces the stored account that has the same id. A change to how the account
+    /// signs in discards its reading, because that reading came from a different login.
+    public func update(_ account: Account) {
+        guard let index = states.firstIndex(where: { $0.id == account.id }),
+              states[index].account != account else { return }
+        let readsTheSame = states[index].account.readsTheSame(as: account)
+        states[index].account = account
+        save()
+        if !readsTheSame {
+            states[index].reset()
+            refreshSoon()
+        }
+    }
+
+    public func removeAccount(_ id: Account.ID) {
+        guard let index = states.firstIndex(where: { $0.id == id }) else { return }
+        repository.setSecret("", for: states[index].account)
+        states.remove(at: index)
+        save()
+    }
+
+    public func moveAccounts(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let moving = source.map { states[$0] }
+        let insertAt = destination - source.count { $0 < destination }
+        for index in source.reversed() { states.remove(at: index) }
+        states.insert(contentsOf: moving, at: insertAt)
+        save()
+    }
+
+    public func secret(for account: Account) -> String {
+        repository.secret(for: account) ?? ""
+    }
+
+    /// Stores a pasted token or key, then reads the account again with it.
+    public func setSecret(_ value: String, for account: Account) {
+        repository.setSecret(value, for: account)
+        guard let index = states.firstIndex(where: { $0.id == account.id }) else { return }
+        states[index].reset()
+        refreshSoon()
+    }
+
+    private func save() {
+        repository.save(accounts)
+    }
+
+    private func refreshSoon() {
+        Task { await refresh() }
     }
 
     // MARK: Polling
@@ -104,14 +151,15 @@ public final class UsageStore {
     /// Refreshes when the panel opens, but avoids hammering the endpoints
     /// (Anthropic's rate-limits this one aggressively).
     public func refreshIfStale(olderThan age: TimeInterval = 60) {
-        if let lastUpdated, Date.now.timeIntervalSince(lastUpdated) < age { return }
-        Task { await refresh() }
+        let attempted = states.compactMap(\.attemptedAt).max()
+        if let attempted, Date.now.timeIntervalSince(attempted) < age { return }
+        refreshSoon()
     }
 
     // MARK: Refresh
 
-    /// Fetches everything using the current account settings. If called while a
-    /// refresh is running (e.g. right after an account change), it runs once more after.
+    /// Reads every account. If called while a refresh is running (e.g. right after
+    /// an account change), it runs once more after.
     public func refresh() async {
         guard !isRefreshing else {
             pendingRefresh = true
@@ -122,8 +170,37 @@ public final class UsageStore {
 
         repeat {
             pendingRefresh = false
-            await fetchAll(config: AuthConfig.load())
+            await fetchAll()
         } while pendingRefresh
+    }
+
+    private func fetchAll() async {
+        let accounts = self.accounts
+        let fetch = self.fetch
+        let results = await withTaskGroup(of: (Account, Result<Reading, ProviderError>).self) { group in
+            for account in accounts {
+                group.addTask { (account, await fetch(account)) }
+            }
+            var results: [(Account, Result<Reading, ProviderError>)] = []
+            for await result in group { results.append(result) }
+            return results
+        }
+
+        let now = Date.now
+        for (account, result) in results {
+            // Skip an account that was removed, or pointed at a different login, during the fetch.
+            guard let index = states.firstIndex(where: { $0.id == account.id }),
+                  states[index].account.readsTheSame(as: account) else { continue }
+            states[index].attemptedAt = now
+            switch result {
+            case .success(let reading):
+                states[index].reading = reading
+                states[index].readAt = now
+                states[index].error = nil
+            case .failure(let error):
+                states[index].error = error
+            }
+        }
     }
 
     // MARK: Claude Code login
@@ -162,37 +239,4 @@ public final class UsageStore {
         claudeCodeWatch = nil
         isWaitingForClaudeCode = false
     }
-
-    private func fetchAll(config: AuthConfig) async {
-        async let claudeResult = capture { () async throws(ProviderError) in
-            try await ClaudeProvider().fetch(config)
-        }
-        async let codexResult = capture { () async throws(ProviderError) in
-            try await CodexProvider().fetch(config)
-        }
-        async let adminResult: Result<CreditUsage, ProviderError>? = config.creditSource == .adminKey
-            ? capture { () async throws(ProviderError) in try await AnthropicCostProvider().fetch(config) }
-            : nil
-
-        let claude = await claudeResult
-        Self.apply(claude.map(Optional.some), to: &self.claude)
-        Self.apply(await codexResult.map(Optional.some), to: &codex)
-        // Plan credit rides along with the Claude response unless an Admin key is configured.
-        Self.apply(await adminResult?.map(Optional.some) ?? claude.map(\.credit), to: &credit)
-    }
-
-    private static func apply<Value>(_ result: Result<Value?, ProviderError>, to status: inout ProviderStatus<Value>) {
-        switch result {
-        case .success(let value):
-            status = ProviderStatus(value: value, error: nil, updatedAt: .now)
-        case .failure(let error):
-            status.error = error
-        }
-    }
-}
-
-private func capture<Value>(
-    _ body: () async throws(ProviderError) -> Value
-) async -> Result<Value, ProviderError> {
-    do { return .success(try await body()) } catch { return .failure(error) }
 }

@@ -1,15 +1,17 @@
 import Foundation
 
-/// Resolves the credential each provider should use, based on the user's account settings.
+/// Resolves the credential a provider should use for one account.
 enum Credentials {
     // MARK: Claude
 
-    static func claudeAccessToken(_ config: AuthConfig) async throws(ProviderError) -> (token: String, plan: String?) {
-        switch config.claudeSource {
-        case .token:
-            guard let token = config.claudeToken else { throw .notSignedIn }
+    static func claudeAccessToken(
+        _ account: Account, secrets: any SecretStore
+    ) async throws(ProviderError) -> (token: String, plan: String?) {
+        switch account.credential {
+        case .pasted:
+            guard let token = secrets.read(account.secretKey) else { throw .notSignedIn }
             return (token, nil)
-        case .claudeCode:
+        case .cli:
             let login = try await claudeCodeLogin()
             return (login.accessToken, login.plan)
         }
@@ -33,15 +35,16 @@ enum Credentials {
 
     // MARK: OpenAI
 
-    static func openAITokens(_ config: AuthConfig) throws(ProviderError) -> (accessToken: String, accountID: String?) {
-        switch config.openAISource {
-        case .token:
-            guard let token = config.openAIToken else { throw .notSignedIn }
-            return (token, config.openAIAccountID)
-        case .codexCLI:
-            guard let data = try? Data(contentsOf: config.codexHome.appending(path: "auth.json")) else {
-                throw .notSignedIn
-            }
+    static func codexTokens(
+        _ account: Account, secrets: any SecretStore
+    ) throws(ProviderError) -> (accessToken: String, accountID: String?) {
+        switch account.credential {
+        case .pasted:
+            guard let token = secrets.read(account.secretKey) else { throw .notSignedIn }
+            return (token, account.chatGPTAccountID)
+        case .cli:
+            let file = URL(fileURLWithPath: account.resolvedCodexHome).appending(path: "auth.json")
+            guard let data = try? Data(contentsOf: file) else { throw .notSignedIn }
             struct Payload: Decodable {
                 struct Tokens: Decodable {
                     var access_token: String

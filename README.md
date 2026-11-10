@@ -1,41 +1,60 @@
 # AI Meter
 
-A small macOS menu bar app that shows five thermometers for your AI usage:
+A small macOS menu bar app that shows how much of each AI allowance you have left, as a row of tanks that drain.
 
-| Group  | Gauges |
+| Account kind | Tanks |
 |--------|--------|
-| Claude | 5-hour session · weekly |
-| API credit | dollars used of the Claude plan's API credit |
+| Claude | 5-hour session · weekly · API credit, when the plan includes one |
 | OpenAI (Codex) | 5-hour session · weekly |
+| Anthropic API | month-to-date spend against a budget you set |
 
-Gauges are monochrome while everything's fine and turn orange at 75% and red at 90%.
-Session bars are thinnest, weekly bars medium, and the API credit bar widest.
-A small logo can lead each brand's meters: Claude's spark before Claude and API credit, OpenAI's knot before Codex.
-Click the icon for detail: percent used, reset times, and a tick on each bar that marks
-**even pace** (how much of the window has elapsed). Fill past the tick means you're burning faster than the window refills.
-The arrow in each section header opens that service's own usage page: claude.ai, ChatGPT's Codex usage, or the Claude Platform cost page when API Credit uses an Admin API key.
+You can add any number of accounts of each kind, for example three OpenAI accounts and no Claude account.
+
+Session tanks are thinnest, weekly tanks medium, and dollar tanks widest.
+The panel draws the same tanks at twice the size, with the percent left and the reset time beside each one.
+In the panel, a tick on each tank marks **even pace**: where the level would be if usage were spread evenly across the window.
+A level below the tick means you're burning faster than the window refills.
+
+## Reading a tank
+
+| Drawing | Meaning |
+|---|---|
+| Solid level, monochrome | A current reading |
+| Solid level, orange | Under 25% left |
+| Red outline and red level | Under 10% left. An empty tank is a red outline with nothing in it. |
+| Striped level, never colored | The last reading, which is out of date |
+| Dashed outline | AI Meter can't read the account and has no earlier reading |
+| Faint outline | The first reading hasn't arrived yet |
+
+A reading is out of date when it has missed two refreshes, or when the account needs you to sign in again.
+The panel says how old the reading is and why.
 
 ## Settings
 
-Open from the panel's ⋯ menu (⌘,):
+Open from the panel's gear button (⌘,). Each tab fits the window without scrolling.
 
-- **Meters**: drain as you use them (the default), or fill up as you use them. Values always say "used" or "left".
-- **Service logos**: show or hide the logos in the menu bar and panel.
-- **Pace marker**: show or hide the even-pace tick.
-- **Show**: hide Claude, API credit, or OpenAI from both the menu bar and the panel.
-- **Refresh** interval (1–15 min) and **Launch at login**.
+- **General**: the refresh interval (1–15 min) and launch at login.
+- **Appearance**: show or hide the service logos and the pace marker. A legend shows each way a tank can be drawn.
+- **Accounts**: the list of accounts.
 
 ## Accounts
 
-Settings → Accounts lists each service with its connection status. You can switch the sign-in source for each:
+Settings → Accounts lists your accounts with their connection status. Click + to add one and − to remove the selected one.
+Drag a row to change the order in the menu bar. Accounts of the same brand that sit next to each other share one logo.
+Each account has a name, a switch that hides it from the menu bar and the panel, and a sign-in source:
 
-| Service | Default | Alternative |
+| Kind | Default | Alternative |
 |---|---|---|
 | Claude | Claude Code's login (Keychain `Claude Code-credentials`, read via `/usr/bin/security` so there's no prompt) | Pasted OAuth access token |
-| OpenAI | Codex CLI's `auth.json` (folder is configurable; defaults to `$CODEX_HOME` or `~/.codex`) | Pasted ChatGPT access token + optional account ID |
-| API Credit | The credit included with your Claude plan, from the Claude response | Anthropic Admin API key: month-to-date spend from `/v1/organizations/cost_report` against a monthly budget you set |
+| OpenAI | Codex CLI's `auth.json` (the folder is set per account and defaults to `$CODEX_HOME` or `~/.codex`) | Pasted ChatGPT access token + optional account ID |
+| Anthropic API | Anthropic Admin API key: month-to-date spend from `/v1/organizations/cost_report` against a monthly budget you set | |
 
-Pasted secrets live in AI Meter's own Keychain items (service `dev.lubelski.AIMeter`), never in UserDefaults.
+Claude Code keeps one login per Mac, so a second Claude account needs a pasted token.
+For a second OpenAI account, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.
+
+On first launch AI Meter adds an account for each command-line login it finds. An upgrade from 1.0 keeps the accounts that were set up there.
+
+The list of accounts lives in UserDefaults. Pasted secrets live in AI Meter's own Keychain items (service `dev.lubelski.AIMeter`, one item per account), never in UserDefaults.
 
 The Claude and OpenAI usage endpoints are the undocumented ones `claude /usage` and `codex /status` use, so they may change.
 AI Meter never refreshes or writes CLI tokens itself, because a refresh rotates the token and would sign the CLI out.
@@ -59,6 +78,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 ## Layout
 
-- `Sources/AIMeterCore`: models, credential loading, providers, `UsageStore` (testable, no UI)
-- `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, and the drawn menu bar icon
-- `Tests/AIMeterCoreTests`: parsing and formatting tests built from real response shapes
+- `Sources/AIMeterCore`: accounts, readings, credential loading, providers, and `UsageStore` (testable, no UI)
+  - `Account.swift`: the kinds of account and what the user stores for each one
+  - `Providers.swift`: picks the provider for an account's kind. A new kind needs a case in `AccountKind`, a provider here, and a form in the Accounts settings.
+  - `AccountState.swift`: an account with its latest reading, and the rule for when that reading is out of date
+- `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, and Settings
+  - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for both the menu bar icon and the panel
+- `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store

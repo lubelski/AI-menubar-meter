@@ -6,11 +6,7 @@ import SwiftUI
 struct AIMeterApp: App {
     @State private var store: UsageStore
 
-    @AppStorage(Preferences.meterStyle) private var style = Preferences.defaultMeterStyle
     @AppStorage(Preferences.showLogos) private var showLogos = true
-    @AppStorage(Service.claude.visibilityKey) private var showClaude = true
-    @AppStorage(Service.openAI.visibilityKey) private var showOpenAI = true
-    @AppStorage(Service.apiCredit.visibilityKey) private var showAPICredit = true
 
     init() {
         let store = UsageStore(interval: Preferences.refreshInterval)
@@ -29,7 +25,7 @@ struct AIMeterApp: App {
         MenuBarExtra {
             UsagePanel(store: store)
         } label: {
-            Image(nsImage: MenuBarIcon.image(for: gaugeGroups, style: style, showLogos: showLogos))
+            Image(nsImage: MenuBarIcon.image(for: store.visibleStates, staleAfter: store.staleAfter, showLogos: showLogos))
         }
         .menuBarExtraStyle(.window)
 
@@ -37,11 +33,5 @@ struct AIMeterApp: App {
             SettingsView(store: store)
         }
         .windowResizability(.contentSize)
-    }
-
-    /// Reads the visibility flags so SwiftUI redraws the icon when one changes.
-    private var gaugeGroups: [MenuBarIcon.Group] {
-        _ = (showClaude, showOpenAI, showAPICredit)
-        return store.visibleGaugeGroups()
     }
 }

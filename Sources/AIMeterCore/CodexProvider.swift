@@ -4,22 +4,22 @@ import Foundation
 public struct CodexProvider: Sendable {
     public init() {}
 
-    public func fetch(_ config: AuthConfig) async throws(ProviderError) -> CodexUsage {
-        let (token, accountID) = try Credentials.openAITokens(config)
+    public func fetch(_ account: Account, secrets: any SecretStore) async throws(ProviderError) -> Reading {
+        let (token, accountID) = try Credentials.codexTokens(account, secrets: secrets)
         var headers = ["Authorization": "Bearer \(token)"]
         headers["ChatGPT-Account-Id"] = accountID
         let data = try await HTTP.get(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers)
-        guard let usage = Self.parse(data) else { throw .unexpectedResponse }
-        return usage
+        guard let reading = Self.parse(data) else { throw .unexpectedResponse }
+        return reading
     }
 
-    static func parse(_ data: Data) -> CodexUsage? {
+    static func parse(_ data: Data) -> Reading? {
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
-        return CodexUsage(
-            plan: response.plan_type?.capitalized,
-            session: response.rate_limit?.primary_window?.usageWindow,
-            weekly: response.rate_limit?.secondary_window?.usageWindow
-        )
+        let tanks = [
+            response.rate_limit?.primary_window?.tank(.session, title: "Session"),
+            response.rate_limit?.secondary_window?.tank(.weekly, title: "Weekly"),
+        ]
+        return Reading(plan: response.plan_type?.capitalized, tanks: tanks.compactMap(\.self))
     }
 
     // MARK: Wire format
@@ -29,9 +29,9 @@ public struct CodexProvider: Sendable {
         var limit_window_seconds: Double?
         var reset_at: Double?
 
-        var usageWindow: UsageWindow {
-            UsageWindow(
-                fraction: used_percent / 100,
+        func tank(_ kind: Tank.Kind, title: String) -> Tank {
+            Tank(
+                kind: kind, title: title, used: used_percent / 100,
                 resetsAt: reset_at.map(Date.init(timeIntervalSince1970:)),
                 duration: limit_window_seconds
             )
