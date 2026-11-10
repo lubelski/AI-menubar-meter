@@ -18,8 +18,7 @@ struct UsagePanel: View {
         }
         .padding(16)
         .frame(width: 290)
-        // Pin the height to the content. Otherwise the MenuBarExtra window can keep a
-        // stale, taller size and show empty glass above and below the panel.
+        // Keep the content at its ideal height, whatever height the window proposes.
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { store.refreshIfStale() }
     }

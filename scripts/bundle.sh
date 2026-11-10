@@ -16,6 +16,21 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/AIMeter"
 
+# Record the SDK that the app was compiled against. SwiftPM's default build engine
+# writes the deployment target (15.0) into the SDK field of the binary instead. macOS
+# reads that field to choose between its current behavior and a compatibility mode for
+# older apps, and the menu bar panel does not resize correctly in the compatibility mode.
+# See docs/investigations/2026-11-09-panel-glass-bands.md.
+MIN_OS=15.0
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+xcrun vtool -set-build-version macos "$MIN_OS" "$SDK_VERSION" -replace \
+  -output "$APP/Contents/MacOS/AIMeter" "$APP/Contents/MacOS/AIMeter"
+STAMPED="$(xcrun vtool -show-build "$APP/Contents/MacOS/AIMeter" | awk '$1 == "sdk" { print $2 }')"
+if [[ "$STAMPED" != "$SDK_VERSION" ]]; then
+  echo "error: the binary is stamped with SDK '$STAMPED', expected '$SDK_VERSION'" >&2
+  exit 1
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

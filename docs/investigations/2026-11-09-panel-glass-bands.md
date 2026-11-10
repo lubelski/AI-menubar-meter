@@ -1,62 +1,112 @@
 # Empty glass above and below the panel
 
-Date: 2026-11-09. macOS 27.2 (26B123). Status: cause not confirmed, not reproduced, not present at the end of the investigation.
+First seen 2026-11-09. Cause confirmed 2026-11-10. macOS 27.2 (26B123), Xcode with the macOS 27.2 SDK.
 
 ## Symptom
 
-The panel opened with a band of empty glass above its content and an equal band below it.
-One screenshot recorded it. In that screenshot the glass was 375 points tall and the content was 309 points tall.
-The glass started at the normal distance below the menu bar, and the content sat centered inside it.
+The panel showed a band of empty glass above its content and an equal band below it.
+The content sat in a dark rectangle with square corners, centered inside a taller rounded panel.
 
-The same symptom led to an earlier change, commit `a7a9eb4`, which added `.fixedSize(horizontal: false, vertical: true)` to the panel.
-That change pins the height of the content. It does not explain or prevent a window that is taller than the content.
+The fault appeared when the content of the panel got shorter while the panel was open.
+The reported case: the panel showed the Claude Code sign-in problem, the user clicked "Try Again", the retry succeeded, and the sign-in text went away.
 
-## What the measurements show
+## Cause
 
-All of these were measured with a test harness that runs the real `MenuBarExtra` and `UsagePanel` with stub data.
+The binary of the app said that it was built with the macOS 15.0 SDK. It was built with the macOS 27.2 SDK.
 
-- The panel window always matched its content. This held when the content grew or shrank while the panel was open, and while it was closed. It held when a refresh landed 0 to 700 ms after the panel started to open. It held when an account was added or removed, and when the first reading arrived while the panel was open.
-- A relaunch did not carry a panel size over. A run with a 453 point panel, followed by a relaunch with a 309 point panel, opened at 309 points. This held for a relaunch after one second and for an immediate one.
-- The glass is not a separate window. The window list of the window server shows no window from any process behind the panel, and the panel window has no glass view in its view hierarchy.
-- SwiftUI owns the frame of the panel window. The window class is `SwiftUI.MenuBarExtraWindow`. It overrides `setFrame(_:display:)` and `makeKeyAndOrderFront(_:)`. When other code changes the frame, SwiftUI resets it within about 20 ms, and the panel then closes.
-- No state of the current build with two accounts is 375 points tall. A scan of 690 combinations of account states found 376 points only when the OpenAI account has no reading at all.
-- The panel of the build before the account rework was 376 points tall. That build showed three sections: Claude, API Credit, and OpenAI.
+Every Mach-O binary records two versions in its `LC_BUILD_VERSION` load command: the oldest macOS it runs on (`minos`) and the SDK it was linked against (`sdk`).
+AppKit and SwiftUI read the `sdk` value when the app starts.
+An app linked against an SDK older than macOS 26 runs in a compatibility mode that keeps the behavior and the appearance from before Liquid Glass.
 
-After the investigation, two real openings from the menu bar were recorded from outside the app. In both, the window was 290 by 309 points and the glass matched it.
+`swift build` wrote `sdk 15.0` into the binary.
+15.0 is the deployment target from `Package.swift`, not the SDK.
+The object files of the same build carry `sdk 27.2`, so the link step sets the wrong value.
+SwiftPM has two build engines, and only the default one does this:
 
-## What this rules out
+| Build | `minos` | `sdk` |
+|---|---|---|
+| `swift build` (default engine, `swiftbuild`) | 15.0 | 15.0 |
+| `swift build --build-system native` (deprecated) | 15.0 | 27.2 |
+| `swiftc` called directly with `-target arm64-apple-macos15.0` | 15.0 | 27.2 |
 
-- A fix that sets the frame of the panel window. The first attempt did this from an `NSViewRepresentable` in the panel's background. SwiftUI resets such a change, and the panel closes. Do not retry this approach.
-- A stale window size after the content shrinks. SwiftUI resizes the window on every content change, and again each time the panel opens.
-- A second surface behind the panel that keeps its own size.
-- A panel size kept in the app's preferences or in saved application state. Neither holds one.
+Which input to the link step causes the wrong value is not known. The link command contains no explicit version flag.
 
-## Best remaining explanation
+In the compatibility mode on macOS 27.2, the window of a `MenuBarExtra` with the `.window` style does not shrink when its content shrinks while the panel is open.
+The window keeps its height, and SwiftUI centers the shorter content inside it.
 
-This is a belief. No test confirmed it.
+## Evidence
 
-The glass had the height of the old build's panel, two launches after that build was replaced.
-The install script killed the running app and started the new one a fraction of a second later, from a bundle that it had just overwritten.
-It also left a second bundle with the same bundle identifier in `build/`.
-The belief is that this handover left the system's side of the menu bar item with the previous size, and that a real click reached that state where the test harness could not.
+A test harness runs the real `MenuBarExtra` and `UsagePanel` with stub data (see "How to script the panel").
+The harness was built once with `swiftc`, which stamps `sdk 27.2`. A second copy of the same binary was restamped:
 
-Two limits of the investigation matter here:
+```sh
+vtool -set-build-version macos 15.0 15.0 -replace -output harness-sdk15 harness
+codesign --force --sign - harness-sdk15
+```
 
-- The harness cannot make a real click. On this macOS version the menu bar item is an `NSSceneStatusItem`, and the system opens the panel through a private session. `performClick`, synthetic mouse events, and an accessibility press do nothing. The harness opens the panel with a private call instead (see below).
-- Bartender 7 and Stage Manager were running. Neither was tested as a factor.
+Both copies ran the same sequence: show the sign-in problem, open the panel, let a successful refresh land 0.5 seconds later.
 
-## What changed because of it
+| Stamp | Window before | Window after | Content after |
+|---|---|---|---|
+| `sdk 27.2` | 427 | 309 | 309 |
+| `sdk 15.0` | 423 | 423 | 309, centered, 57 points from the top and the bottom |
 
-- `scripts/bundle.sh --install` now waits until the old process has exited before it starts the new one.
-- It moves the built bundle to `~/Applications` instead of copying it, so that only one bundle with the app's identifier exists, and it registers that bundle with LaunchServices.
+The `sdk 15.0` copy showed the fault in 3 of 3 runs, and its screenshot matches the reported one.
+The `sdk 27.2` copy resized correctly in every run, here and in about 20 other sequences on 2026-11-09.
 
-These changes remove the two irregular parts of the install. They are not a verified fix.
+The first sighting, on 2026-11-09, showed 375 points of glass around 309 points of content.
+A panel in which the OpenAI account has no reading is 376 points tall.
+The belief is that the panel was opened while that account was still loading, and that the content shrank when the reading arrived. That case was not rerun.
 
-## How to investigate if it comes back
+## Fix
 
-1. Record the real panel from outside the app. `CGWindowListCopyWindowInfo` with `.optionOnScreenOnly` lists the panel as a window owned by "AI Meter" at layer 101. Compare its height with the content. A height other than the content's means SwiftUI sized the window wrong. An equal height with visible bands means something else draws the glass.
-2. Note what happened just before: an install, a wake from sleep, a change in Settings.
-3. To script the panel, build the app's sources with a small `@main` that injects a `UsageStore` with a stub `fetch`. Open the panel in that process with the private call below. It is for a throwaway harness only and must not ship.
+`scripts/bundle.sh` writes the real SDK version into the binary after the build, with `vtool -set-build-version`, and then signs the bundle.
+It reads the version from `xcrun --sdk macosx --show-sdk-version`.
+The script fails if the binary does not carry that version afterwards.
+
+The app now runs on the current code path of macOS 26 and later:
+
+- The panel window follows its content.
+- The panel is drawn as a rounded Liquid Glass panel instead of a flat dark rectangle with a hairline border.
+- Settings uses the current control styles. All three tabs still fit in the 660 by 520 point window without scrolling. On the Accounts tab this was checked for a Claude Code login, a Codex login, and an Anthropic API key. The forms for a pasted token were not checked.
+
+## What is not fixed or not verified
+
+- A binary from `swift build` or `swift run` alone still carries `sdk 15.0` and still shows the fault. Only the bundle from `scripts/bundle.sh` is stamped.
+- macOS 15 was not tested. There the old code path is the only one. Whether a panel shrinks correctly on a real macOS 15 system is unknown.
+- `.fixedSize(horizontal: false, vertical: true)` on the panel came from commit `a7a9eb4`, an earlier attempt at this symptom. It keeps the content at its ideal height. It never prevented the fault. Whether the panel needs it on macOS 15 was not tested, so it stays.
+
+## What the first investigation got wrong
+
+The write-up of 2026-11-09 blamed the install script, which started the new app a fraction of a second after it killed the old one.
+That explanation was a belief, and it is wrong.
+The harness could not reproduce the fault because `swiftc` gave it the correct SDK stamp, so it never ran in the compatibility mode.
+The changes to the install script from that day (wait for the old process to exit, keep one bundle, register it) are still reasonable. They did not fix this fault.
+
+Findings from that investigation that still hold on the current code path:
+
+- SwiftUI owns the frame of the panel window. The window class is `SwiftUI.MenuBarExtraWindow`, and it overrides `setFrame(_:display:)`. When other code changes the frame, SwiftUI resets it within about 20 ms, and the panel then closes. Do not fix a size problem by setting the frame of this window.
+- The glass is not a separate window. The window list of the window server shows no window from any process behind the panel.
+- Neither the app's preferences nor its saved application state holds a panel size.
+
+## How to check a build
+
+```sh
+xcrun vtool -show-build "$HOME/Applications/AI Meter.app/Contents/MacOS/AIMeter"
+```
+
+`sdk` must be the version of the installed macOS SDK (`xcrun --sdk macosx --show-sdk-version`), and never the same as `minos`.
+A flat dark panel with a hairline border and square inner corners is the visible sign of the compatibility mode.
+
+## How to script the panel
+
+Build the app's sources, minus `AIMeterApp.swift`, with a small `@main` that injects a `UsageStore` with a stub `fetch`.
+Compile `Sources/AIMeterCore` as a static library first, then the app sources with `swiftc`.
+Check the SDK stamp of the result, and restamp a copy when the compatibility mode is the subject of the test.
+
+On this macOS version the menu bar item is an `NSSceneStatusItem`, and the system opens the panel through a private session.
+`performClick`, synthetic mouse events on the status item, and an accessibility press do nothing.
+The harness opens the panel with a private call instead. It is for a throwaway harness only and must not ship.
 
 ```swift
 // The status item behind the MenuBarExtra. `button` is the NSStatusBarButton
@@ -69,11 +119,15 @@ _ = item?.perform(NSSelectorFromString("_requestExpandedInterfaceSession"))
 (item?.value(forKey: "expandedInterfaceSession") as AnyObject?)?.perform(NSSelectorFromString("cancel"))
 ```
 
-To measure what the content needs, ask a separate offscreen host: `NSHostingView(rootView: UsagePanel(store: store)).fittingSize.height`. The panel's own hosting view reports no fitting size.
+Three more notes for the harness:
+
+- A synthetic mouse event does work inside the open panel. Send it with `window.sendEvent(_:)` on the panel window.
+- To measure what the content needs, ask a separate offscreen host: `NSHostingView(rootView: UsagePanel(store: store)).fittingSize.height`. The panel's own hosting view reports no fitting size.
+- Each run opens a real panel and takes keyboard focus. In the compatibility mode the panel also closes when the app stops being the active app, so activity in other apps changes the result.
 
 ## Reference heights
 
-Two accounts, Claude with one model-scoped row, 290 points wide.
+Two accounts, Claude with one model-scoped row, 290 points wide, measured with the `sdk 27.2` harness.
 
 | State | Height |
 |---|---|
@@ -82,4 +136,4 @@ Two accounts, Claude with one model-scoped row, 290 points wide.
 | Both readings out of date | 356 |
 | A third account that cannot sign in | 377 |
 | Claude with a plan API credit tank | 385 |
-| Claude with the Claude Code sign-in fix showing | 426 |
+| Claude with the Claude Code sign-in fix showing | 427 |
