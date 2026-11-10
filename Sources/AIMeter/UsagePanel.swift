@@ -12,6 +12,9 @@ struct UsagePanel: View {
         VStack(alignment: .leading, spacing: 14) {
             if showClaude {
                 ProviderSection(title: "Claude", plan: store.claude.value?.plan, error: store.claude.error) {
+                    if let issue = store.claude.error?.claudeCodeIssue {
+                        ClaudeCodeFix(store: store, issue: issue)
+                    }
                     if let usage = store.claude.value {
                         WindowRow(title: "Session", window: usage.session)
                         WindowRow(title: "Weekly", window: usage.weekly)
@@ -81,7 +84,8 @@ private struct ProviderSection<Content: View>: View {
                         .help(error.message)
                 }
             }
-            if let error, error.needsAttention {
+            // Claude Code problems get their own explanation and buttons in `content`.
+            if let error, error.needsAttention, error.claudeCodeIssue == nil {
                 Text("\(error.message). Check Settings → Accounts.")
                     .foregroundStyle(.secondary)
             }

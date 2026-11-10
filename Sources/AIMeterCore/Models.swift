@@ -81,6 +81,7 @@ public enum ProviderError: Error, Sendable, Equatable {
     case notSignedIn
     case sessionExpired
     case keyRejected
+    case claudeCode(ClaudeCodeIssue)
     case rateLimited
     case network(String)
     case unexpectedResponse
@@ -88,9 +89,14 @@ public enum ProviderError: Error, Sendable, Equatable {
     /// Errors the user has to fix (as opposed to ones that clear up on their own).
     public var needsAttention: Bool {
         switch self {
-        case .notSignedIn, .sessionExpired, .keyRejected: true
+        case .notSignedIn, .sessionExpired, .keyRejected, .claudeCode: true
         case .rateLimited, .network, .unexpectedResponse: false
         }
+    }
+
+    /// The Claude Code problem behind this error, if there is one. The UI shows a fix for it.
+    public var claudeCodeIssue: ClaudeCodeIssue? {
+        if case .claudeCode(let issue) = self { issue } else { nil }
     }
 
     public var message: String {
@@ -98,6 +104,10 @@ public enum ProviderError: Error, Sendable, Equatable {
         case .notSignedIn: "Not signed in"
         case .sessionExpired: "Sign-in expired"
         case .keyRejected: "Key was rejected"
+        case .claudeCode(.signedOut): "Claude Code is signed out"
+        case .claudeCode(.loginExpired): "Claude Code login expired"
+        case .claudeCode(.refreshFailed): "Sign-in needs a refresh"
+        case .claudeCode(.cliNotFound): "Can't find Claude Code"
         case .rateLimited: "Rate limited — will retry"
         case .network(let detail): detail
         case .unexpectedResponse: "Unexpected response"

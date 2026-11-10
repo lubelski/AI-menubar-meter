@@ -136,3 +136,104 @@ struct CostReportTests {
         #expect(next.formatted(.iso8601) == "2026-12-01T00:00:00Z")
     }
 }
+
+@Suite struct ClaudeCodeLoginTests {
+    private func payload(token: String, expires: String, refreshExpires: String? = nil) -> Data {
+        let refresh = refreshExpires.map { #", "refreshTokenExpiresAt": \#($0)"# } ?? ""
+        return Data(#"{"claudeAiOauth": {"accessToken": "\#(token)", "expiresAt": \#(expires)\#(refresh), "subscriptionType": "max"}}"#.utf8)
+    }
+
+    @Test func decodesMillisecondTimestamps() throws {
+        let login = try #require(ClaudeCodeLogin.decode(payload(token: "a", expires: "1794280796145", refreshExpires: "\"1796080834416\"")))
+        #expect(login.accessToken == "a")
+        #expect(login.plan == "max")
+        #expect(login.expiresAt == Date(timeIntervalSince1970: 1_794_280_796.145))
+        #expect(login.refreshExpiresAt == Date(timeIntervalSince1970: 1_796_080_834.416))
+    }
+
+    @Test func staleFileLosesToCurrentKeychainItem() throws {
+        let stale = ClaudeCodeLogin.decode(payload(token: "old", expires: "1757000000000"))
+        let current = ClaudeCodeLogin.decode(payload(token: "new", expires: "1794280796145"))
+        #expect(ClaudeCodeLogin.newest([stale, current])?.accessToken == "new")
+        #expect(ClaudeCodeLogin.newest([current, stale])?.accessToken == "new")
+        #expect(ClaudeCodeLogin.newest([nil, stale])?.accessToken == "old")
+    }
+
+    @Test func tokenNearExpiryIsNotUsable() {
+        let now = Date.now
+        let login = ClaudeCodeLogin(accessToken: "a", expiresAt: now.addingTimeInterval(30),
+                                    refreshExpiresAt: now.addingTimeInterval(-1), plan: nil)
+        #expect(!login.isUsable(at: now))
+        #expect(login.needsNewSignIn(at: now))
+    }
+}
+
+@Suite struct ClaudeCodeResolveTests {
+    private let now = Date.now
+    private func login(_ token: String = "a", expiresIn: TimeInterval = 3600, refreshExpiresIn: TimeInterval = 86400) -> ClaudeCodeLogin {
+        ClaudeCodeLogin(accessToken: token, expiresAt: now.addingTimeInterval(expiresIn),
+                        refreshExpiresAt: now.addingTimeInterval(refreshExpiresIn), plan: "max")
+    }
+
+    @Test func usableLoginNeedsNoCLI() {
+        #expect(ClaudeCodeLogin.resolve(login(), rejecting: nil) == .success(login()))
+    }
+
+    @Test func expiredOrRejectedTokenAsksTheCLI() {
+        #expect(ClaudeCodeLogin.resolve(login(expiresIn: -10), rejecting: nil) == nil)
+        #expect(ClaudeCodeLogin.resolve(login("a"), rejecting: "a") == nil)
+        #expect(ClaudeCodeLogin.resolve(nil, rejecting: nil) == nil)
+    }
+
+    @Test func expiredRefreshTokenNeedsSignInWithoutAskingTheCLI() {
+        #expect(ClaudeCodeLogin.resolve(login(expiresIn: -10, refreshExpiresIn: -1), rejecting: nil) == .failure(.loginExpired))
+    }
+
+    @Test func refreshedTokenWins() {
+        let fresh = login("b")
+        #expect(ClaudeCodeLogin.resolve(fresh, rejecting: "a", after: .ran(loggedIn: true)) == .success(fresh))
+    }
+
+    @Test func failuresAfterAskingTheCLI() {
+        let stale = login(expiresIn: -10)
+        #expect(ClaudeCodeLogin.resolve(stale, rejecting: nil, after: .ran(loggedIn: true)) == .failure(.refreshFailed))
+        #expect(ClaudeCodeLogin.resolve(stale, rejecting: nil, after: .ran(loggedIn: nil)) == .failure(.refreshFailed))
+        #expect(ClaudeCodeLogin.resolve(stale, rejecting: nil, after: .throttled) == .failure(.refreshFailed))
+        #expect(ClaudeCodeLogin.resolve(stale, rejecting: nil, after: .ran(loggedIn: false)) == .failure(.signedOut))
+        #expect(ClaudeCodeLogin.resolve(stale, rejecting: nil, after: .noCLI) == .failure(.cliNotFound))
+        #expect(ClaudeCodeLogin.resolve(nil, rejecting: nil, after: .ran(loggedIn: nil)) == .failure(.signedOut))
+        #expect(ClaudeCodeLogin.resolve(nil, rejecting: nil, after: .noCLI) == .failure(.cliNotFound))
+    }
+}
+
+@Suite struct SubprocessTests {
+    @Test func returnsOutput() async throws {
+        let data = try await Subprocess.run("/bin/echo", ["hi"])
+        #expect(String(decoding: data, as: UTF8.self) == "hi\n")
+    }
+
+    @Test func throwsOnNonzeroExit() async {
+        await #expect(throws: Subprocess.Failure.self) { try await Subprocess.run("/usr/bin/false", []) }
+    }
+
+    @Test func detachedTimeoutLeavesTheProcessRunning() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "aimeter-\(UUID().uuidString)")
+        let start = ContinuousClock.now
+        await #expect(throws: Subprocess.Failure.self) {
+            try await Subprocess.run("/bin/sh", ["-c", "sleep 1; touch '\(marker.path)'"], timeout: 0.2, onTimeout: .detach)
+        }
+        #expect(ContinuousClock.now - start < .seconds(1))
+        try await Task.sleep(for: .seconds(1.5))
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        try? FileManager.default.removeItem(at: marker)
+    }
+
+    @Test func terminatingTimeoutStopsTheProcess() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "aimeter-\(UUID().uuidString)")
+        await #expect(throws: Subprocess.Failure.self) {
+            try await Subprocess.run("/bin/sh", ["-c", "sleep 1; touch '\(marker.path)'"], timeout: 0.2)
+        }
+        try await Task.sleep(for: .seconds(1.5))
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+}

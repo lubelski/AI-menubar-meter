@@ -5,17 +5,34 @@ public struct ClaudeProvider: Sendable {
     public init() {}
 
     public func fetch(_ config: AuthConfig) async throws(ProviderError) -> ClaudeUsage {
-        let (token, plan) = try await Credentials.claudeAccessToken(config)
-        let data = try await HTTP.get(
+        var (token, plan) = try await Credentials.claudeAccessToken(config)
+        let data: Data
+        do {
+            data = try await Self.get(token)
+        } catch .sessionExpired where config.claudeSource == .claudeCode {
+            // Claude Code may have rotated its token, or the server revoked it early.
+            // Let the CLI refresh it, then try once more.
+            let login = try await Credentials.claudeCodeLogin(rejecting: token)
+            (token, plan) = (login.accessToken, login.plan)
+            do {
+                data = try await Self.get(token)
+            } catch .sessionExpired {
+                throw .claudeCode(.refreshFailed)
+            }
+        }
+        guard var usage = Self.parse(data) else { throw .unexpectedResponse }
+        usage.plan = plan?.capitalized
+        return usage
+    }
+
+    private static func get(_ token: String) async throws(ProviderError) -> Data {
+        try await HTTP.get(
             URL(string: "https://api.anthropic.com/api/oauth/usage")!,
             headers: [
                 "Authorization": "Bearer \(token)",
                 "anthropic-beta": "oauth-2025-04-20",
             ]
         )
-        guard var usage = Self.parse(data) else { throw .unexpectedResponse }
-        usage.plan = plan?.capitalized
-        return usage
     }
 
     static func parse(_ data: Data) -> ClaudeUsage? {
