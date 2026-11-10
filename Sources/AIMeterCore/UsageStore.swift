@@ -39,10 +39,13 @@ public final class UsageStore {
     /// `value == nil` with no error means the account has no API credit.
     public private(set) var credit = ProviderStatus<CreditUsage>()
     public private(set) var isRefreshing = false
+    /// True while the user signs in to Claude Code in Terminal and AI Meter watches for the new login.
+    public private(set) var isWaitingForClaudeCode = false
 
     @ObservationIgnored private var interval: Duration
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRefresh = false
+    @ObservationIgnored private var claudeCodeWatch: Task<Void, Never>?
 
     public init(interval: Duration = .seconds(300)) {
         self.interval = interval
@@ -121,6 +124,43 @@ public final class UsageStore {
             pendingRefresh = false
             await fetchAll(config: AuthConfig.load())
         } while pendingRefresh
+    }
+
+    // MARK: Claude Code login
+
+    /// Asks the Claude Code CLI to refresh its login right away, then refreshes.
+    public func retryClaudeCode() async {
+        await ClaudeCodeCLI.shared.allowImmediateNudge()
+        await refresh()
+    }
+
+    /// Watches the Claude Code login while the user runs Claude Code in Terminal.
+    /// Refreshes as soon as a new, unexpired token appears, or when `timeout` runs out.
+    /// Call it before opening Terminal: it records the current token before it returns,
+    /// so a refresh that happens right away still counts as new.
+    public func waitForClaudeCodeLogin(timeout: Duration = .seconds(300)) async {
+        claudeCodeWatch?.cancel()
+        isWaitingForClaudeCode = true
+        let original = await ClaudeCodeLogin.read()?.accessToken
+        claudeCodeWatch = Task { [weak self] in
+            let deadline = ContinuousClock.now + timeout
+            while ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .seconds(3))
+                if Task.isCancelled { return }
+                if let login = await ClaudeCodeLogin.read(), login.isUsable(), login.accessToken != original {
+                    break
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.isWaitingForClaudeCode = false
+            await self.retryClaudeCode()
+        }
+    }
+
+    public func stopWaitingForClaudeCode() {
+        claudeCodeWatch?.cancel()
+        claudeCodeWatch = nil
+        isWaitingForClaudeCode = false
     }
 
     private func fetchAll(config: AuthConfig) async {

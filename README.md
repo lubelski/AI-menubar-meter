@@ -38,7 +38,12 @@ Settings → Accounts lists each service with its connection status. You can swi
 Pasted secrets live in AI Meter's own Keychain items (service `dev.lubelski.AIMeter`), never in UserDefaults.
 
 The Claude and OpenAI usage endpoints are the undocumented ones `claude /usage` and `codex /status` use, so they may change.
-AI Meter never refreshes or writes CLI tokens. If one expires, run `claude` or `codex` once.
+AI Meter never refreshes or writes CLI tokens itself, because a refresh rotates the token and would sign the CLI out.
+When the Claude Code token expires or the server rejects it, AI Meter runs `claude auth status`, which refreshes the login, and tries again.
+It runs that command at most every 10 minutes and never kills it, because a refresh that stops partway can sign you out.
+If the refresh doesn't help, the panel and Settings → Accounts explain the problem and offer a button that opens `claude` (or `claude auth login`) in Terminal.
+AI Meter watches for the new login and reconnects on its own.
+If a Codex token expires, run `codex` once.
 
 Polling runs every 5 minutes, again on wake, and when the panel opens if the data is more than a minute old.
 
