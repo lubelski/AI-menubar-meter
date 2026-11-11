@@ -123,3 +123,30 @@ struct OAuthTests {
         }
     }
 }
+
+import Darwin
+
+@Suite("Callback server port")
+struct CallbackPortTests {
+    /// `codex login` holds 1455 with an ordinary socket. The sign-in must not share the port,
+    /// or the browser's redirect could reach either program.
+    @Test func aPortHeldByAnotherProgramIsReported() async throws {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = 0
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafeMutablePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, length) == 0 && getsockname(fd, $0, &length) == 0 }
+        }
+        #expect(bound)
+        #expect(listen(fd, 1) == 0)
+        let port = UInt16(bigEndian: addr.sin_port)
+        await #expect(throws: OAuthError.portInUse(port)) {
+            let server = try await CallbackServer.start(port: port, path: "/callback")
+            server.stop()
+        }
+    }
+}

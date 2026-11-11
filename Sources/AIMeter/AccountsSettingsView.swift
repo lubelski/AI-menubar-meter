@@ -272,22 +272,31 @@ private struct BrowserSignInRow: View {
                     .truncationMode(.middle)
                 if isSigningIn {
                     Button("Cancel") { store.cancelSignIn() }
-                } else {
-                    if login != nil {
-                        Button("Sign Out") { store.signOut(account) }
-                    }
-                    Button(login == nil ? "Sign In…" : "Sign In Again…") {
-                        store.signIn(account) { url in
-                            Task { @MainActor in NSWorkspace.shared.open(url) }
-                        }
-                    }
+                } else if login == nil {
+                    signInButton("Sign In…")
                 }
             }
         }
+        if login != nil, !isSigningIn {
+            HStack {
+                Spacer()
+                Button("Sign Out") { store.signOut(account) }
+                signInButton("Sign In Again…")
+            }
+        }
         if let error = store.signInErrors[account.id] {
-            Text(error.message)
+            // The message marks command names with backticks; render them as code.
+            Text(LocalizedStringKey(error.message))
                 .font(.callout)
                 .foregroundStyle(.red)
+        }
+    }
+
+    private func signInButton(_ title: String) -> some View {
+        Button(title) {
+            store.signIn(account) { url in
+                Task { @MainActor in NSWorkspace.shared.open(url) }
+            }
         }
     }
 }
