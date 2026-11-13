@@ -17,10 +17,16 @@ struct UsagePanel: View {
             Footer(store: store)
         }
         .padding(16)
-        .frame(width: 290)
+        .frame(width: width)
         // Keep the content at its ideal height, whatever height the window proposes.
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { store.refreshIfStale() }
+    }
+
+    /// Wider when an account shows three rate-limit tanks in its row, so their captions have room.
+    private var width: CGFloat {
+        let widest = store.visibleStates.map { $0.slots.filter { $0.kind != .pool }.count }.max() ?? 0
+        return widest >= 3 ? 340 : 290
     }
 }
 
