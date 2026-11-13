@@ -15,7 +15,10 @@ struct ClaudeParsingTests {
       "extra_usage": { "is_enabled": false, "monthly_limit": null },
       "limits": [
         { "kind": "session", "percent": 42, "scope": null },
-        { "kind": "weekly_scoped", "percent": 11, "scope": { "model": { "display_name": "Opus" } } }
+        { "kind": "weekly_scoped", "percent": 11, "scope": { "model": { "display_name": "Opus" } } },
+        { "kind": "weekly_scoped", "group": "weekly", "percent": 82, "severity": "warning",
+          "resets_at": "2026-11-08T17:00:00.126457+00:00", "is_active": true,
+          "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } }
       ]
     }
     """.utf8)
@@ -38,6 +41,16 @@ struct ClaudeParsingTests {
     @Test func parsesScopedWeeklyLimits() throws {
         let scoped = try #require(ClaudeProvider.parse(json)).scoped
         #expect(scoped == [ScopedLimit(name: "Opus", fraction: 0.11)])
+    }
+
+    @Test func fableLimitBecomesATank() throws {
+        let reading = try #require(ClaudeProvider.parse(json))
+        let fable = try #require(reading.tank(.fable))
+        #expect(fable.title == "Fable")
+        #expect(fable.used == 0.82)
+        #expect(fable.duration == 604_800.0)
+        #expect(fable.resetsAt == Date(timeIntervalSince1970: 1_794_157_200))
+        #expect(reading.tanks.map(\.kind) == [.session, .weekly, .fable, .pool])
     }
 
     @Test func toleratesMissingFields() throws {

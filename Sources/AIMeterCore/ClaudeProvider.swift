@@ -38,12 +38,17 @@ public struct ClaudeProvider: Sendable {
     static func parse(_ data: Data) -> Reading? {
         guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return nil }
 
-        let scoped = (response.limits ?? [])
-            .filter { $0.kind == "weekly_scoped" }
-            .compactMap { limit -> ScopedLimit? in
-                guard let name = limit.scope?.model?.display_name else { return nil }
-                return ScopedLimit(name: name, fraction: limit.percent / 100)
-            }
+        let weeklyScoped = (response.limits ?? []).filter { $0.kind == "weekly_scoped" }
+
+        // The Fable limit gets its own tank. Any other model's limit stays a line of text.
+        let fable = weeklyScoped.first { $0.modelName == "Fable" }.map { limit in
+            Tank(kind: .fable, title: "Fable", used: limit.percent / 100,
+                 resetsAt: limit.resets_at.flatMap(Timestamp.parse), duration: 7 * 86400)
+        }
+        let scoped = weeklyScoped.compactMap { limit -> ScopedLimit? in
+            guard let name = limit.modelName, name != "Fable" else { return nil }
+            return ScopedLimit(name: name, fraction: limit.percent / 100)
+        }
 
         // The plan's API credit arrives under an internal codename that changes, so it's
         // identified by shape instead: the only windows that carry a dollar limit.
@@ -61,6 +66,7 @@ public struct ClaudeProvider: Sendable {
         let tanks = [
             response.five_hour?.tank(.session, title: "Session", duration: 5 * 3600),
             response.seven_day?.tank(.weekly, title: "Weekly", duration: 7 * 86400),
+            fable,
             credit,
         ]
         return Reading(tanks: tanks.compactMap(\.self), scoped: scoped)
@@ -89,7 +95,10 @@ public struct ClaudeProvider: Sendable {
         }
         var kind: String
         var percent: Double
+        var resets_at: String?
         var scope: Scope?
+
+        var modelName: String? { scope?.model?.display_name }
     }
 
     private struct Response: Decodable {

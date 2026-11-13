@@ -3,15 +3,16 @@ import Foundation
 /// One allowance that drains as the account is used: a rate-limit window or a pool of dollars.
 public struct Tank: Sendable, Equatable, Identifiable {
     /// Short windows draw thinnest and money pools widest, so the shape alone tells them apart.
+    /// `fable` is the weekly limit on the Fable model alone. It draws like `weekly`.
     /// Case order is display order.
     public enum Kind: Int, Sendable, Comparable, CaseIterable {
-        case session, weekly, pool
+        case session, weekly, fable, pool
 
         public static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
     }
 
     public var kind: Kind
-    /// "Session", "Weekly", "API credit".
+    /// "Session", "Weekly", "Fable", "API credit".
     public var title: String
     /// Portion of the allowance consumed, clamped to `0...1`.
     public var used: Double

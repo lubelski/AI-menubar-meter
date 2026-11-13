@@ -198,6 +198,7 @@ private struct TankRow: View {
         switch slot.kind {
         case .session: "Session"
         case .weekly: "Weekly"
+        case .fable: "Fable"
         case .pool: "Credit"
         }
     }
