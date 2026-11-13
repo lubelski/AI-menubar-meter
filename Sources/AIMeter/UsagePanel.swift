@@ -17,10 +17,16 @@ struct UsagePanel: View {
             Footer(store: store)
         }
         .padding(16)
-        .frame(width: 290)
+        .frame(width: width)
         // Keep the content at its ideal height, whatever height the window proposes.
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { store.refreshIfStale() }
+    }
+
+    /// Wider when an account shows three rate-limit tanks in its row, so their captions have room.
+    private var width: CGFloat {
+        let widest = store.visibleStates.map { $0.slots.filter { $0.kind != .pool }.count }.max() ?? 0
+        return widest >= 3 ? 340 : 290
     }
 }
 
@@ -108,13 +114,16 @@ private struct AccountSection: View {
         }
     }
 
-    /// Two tanks per row. A third tank, such as a plan's API credit, starts a second row.
+    /// The rate-limit windows share one row, in the same order as the menu bar icon.
+    /// A dollar pool, such as a plan's API credit, gets a row of its own below them.
     private func tanks(_ condition: AccountState.Condition) -> some View {
         let slots = state.slots
+        let rows = [slots.filter { $0.kind != .pool }, slots.filter { $0.kind == .pool }]
+            .filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(stride(from: 0, to: slots.count, by: 2)), id: \.self) { start in
+            ForEach(rows, id: \.first?.kind) { row in
                 HStack(alignment: .top, spacing: 12) {
-                    ForEach(slots[start..<min(start + 2, slots.count)]) { slot in
+                    ForEach(row) { slot in
                         TankRow(slot: slot, condition: condition, kind: account.kind)
                     }
                 }
@@ -198,6 +207,7 @@ private struct TankRow: View {
         switch slot.kind {
         case .session: "Session"
         case .weekly: "Weekly"
+        case .fable: "Fable"
         case .pool: "Credit"
         }
     }

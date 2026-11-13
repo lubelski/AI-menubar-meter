@@ -49,10 +49,11 @@ enum TankFill: Equatable {
 /// at different sizes, so a tank looks the same in both places.
 enum TankDrawing {
     /// Width in the menu bar. Session < weekly < pool, so each kind is recognizable by shape alone.
+    /// Fable is a weekly window too, so it has the weekly width and sits right before Weekly.
     static func width(for kind: Tank.Kind) -> CGFloat {
         switch kind {
         case .session: 3
-        case .weekly: 4.5
+        case .weekly, .fable: 4.5
         case .pool: 7
         }
     }
