@@ -65,8 +65,8 @@ public struct ClaudeProvider: Sendable {
 
         let tanks = [
             response.five_hour?.tank(.session, title: "Session", duration: 5 * 3600),
-            response.seven_day?.tank(.weekly, title: "Weekly", duration: 7 * 86400),
             fable,
+            response.seven_day?.tank(.weekly, title: "Weekly", duration: 7 * 86400),
             credit,
         ]
         return Reading(tanks: tanks.compactMap(\.self), scoped: scoped)

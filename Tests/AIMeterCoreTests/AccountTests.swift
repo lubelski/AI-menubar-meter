@@ -80,14 +80,14 @@ struct AccountStateTests {
         #expect(state.slots.map { $0.tank != nil } == [true, false, true])
     }
 
-    @Test func aFableTankSitsBetweenWeeklyAndCredit() {
+    @Test func aFableTankSitsBetweenSessionAndWeekly() {
         var state = AccountState(account: Account(kind: .claude))
         state.reading = Reading(tanks: [
             Tank(kind: .pool, title: "API credit", used: 0.5),
             Tank(kind: .fable, title: "Fable", used: 0.8),
             Tank(kind: .weekly, title: "Weekly", used: 0.6),
         ])
-        #expect(state.slots.map(\.kind) == [.session, .weekly, .fable, .pool])
+        #expect(state.slots.map(\.kind) == [.session, .fable, .weekly, .pool])
     }
 }
 

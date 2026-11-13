@@ -50,7 +50,7 @@ struct ClaudeParsingTests {
         #expect(fable.used == 0.82)
         #expect(fable.duration == 604_800.0)
         #expect(fable.resetsAt == Date(timeIntervalSince1970: 1_794_157_200))
-        #expect(reading.tanks.map(\.kind) == [.session, .weekly, .fable, .pool])
+        #expect(reading.tanks.map(\.kind) == [.session, .fable, .weekly, .pool])
     }
 
     @Test func toleratesMissingFields() throws {

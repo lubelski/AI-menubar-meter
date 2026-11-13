@@ -4,9 +4,9 @@ import Foundation
 public struct Tank: Sendable, Equatable, Identifiable {
     /// Short windows draw thinnest and money pools widest, so the shape alone tells them apart.
     /// `fable` is the weekly limit on the Fable model alone. It draws like `weekly`.
-    /// Case order is display order.
+    /// Case order is display order: most specific first, so Fable comes before the all-model weekly limit.
     public enum Kind: Int, Sendable, Comparable, CaseIterable {
-        case session, weekly, fable, pool
+        case session, fable, weekly, pool
 
         public static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
     }
