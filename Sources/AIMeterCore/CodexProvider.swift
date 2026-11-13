@@ -5,12 +5,23 @@ public struct CodexProvider: Sendable {
     public init() {}
 
     public func fetch(_ account: Account, secrets: any SecretStore) async throws(ProviderError) -> Reading {
-        let (token, accountID) = try Credentials.codexTokens(account, secrets: secrets)
-        var headers = ["Authorization": "Bearer \(token)"]
-        headers["ChatGPT-Account-Id"] = accountID
-        let data = try await HTTP.get(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers)
+        let (token, accountID) = try await Credentials.codexTokens(account, secrets: secrets)
+        let data: Data
+        do {
+            data = try await Self.get(token, accountID: accountID)
+        } catch .sessionExpired where account.credential == .oauth {
+            // The server can revoke a token before it expires. Refresh once and try again.
+            let (token, accountID) = try await Credentials.codexTokens(account, secrets: secrets, rejecting: token)
+            data = try await Self.get(token, accountID: accountID)
+        }
         guard let reading = Self.parse(data) else { throw .unexpectedResponse }
         return reading
+    }
+
+    private static func get(_ token: String, accountID: String?) async throws(ProviderError) -> Data {
+        var headers = ["Authorization": "Bearer \(token)"]
+        headers["ChatGPT-Account-Id"] = accountID
+        return try await HTTP.get(URL(string: "https://chatgpt.com/backend-api/wham/usage")!, headers: headers)
     }
 
     static func parse(_ data: Data) -> Reading? {

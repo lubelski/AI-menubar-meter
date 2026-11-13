@@ -52,7 +52,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Ways to sign in, with the default first.
     public var credentialSources: [CredentialSource] {
         switch self {
-        case .claude, .codex: [.cli, .pasted]
+        case .claude, .codex: OAuthClient.for(self) == nil ? [.cli, .pasted] : [.cli, .oauth, .pasted]
         case .anthropicAPI: [.pasted]
         }
     }
@@ -72,6 +72,9 @@ public enum CredentialSource: String, Codable, Identifiable, Sendable {
     case cli
     /// A token or key pasted into Settings and stored in AI Meter's Keychain item.
     case pasted
+    /// A login AI Meter obtained itself through the service's browser sign-in. AI Meter
+    /// keeps it in its own Keychain item and refreshes it, since no other program uses it.
+    case oauth
 
     public var id: Self { self }
 }

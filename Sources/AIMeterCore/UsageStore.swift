@@ -15,6 +15,10 @@ public final class UsageStore {
     public private(set) var isRefreshing = false
     /// True while the user signs in to Claude Code in Terminal and AI Meter watches for the new login.
     public private(set) var isWaitingForClaudeCode = false
+    /// The account whose browser sign-in is running, if any. One runs at a time.
+    public private(set) var signingIn: Account.ID?
+    /// Why the last browser sign-in failed, by account.
+    public private(set) var signInErrors: [Account.ID: OAuthError] = [:]
     /// How often the store polls. A reading older than `staleAfter` counts as stale.
     public private(set) var interval: Duration
 
@@ -23,6 +27,7 @@ public final class UsageStore {
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRefresh = false
     @ObservationIgnored private var claudeCodeWatch: Task<Void, Never>?
+    @ObservationIgnored private var signInTask: Task<Void, Never>?
 
     /// - Parameter fetch: Reads one account. Tests pass a stub. The default uses the real providers.
     public init(
@@ -88,6 +93,8 @@ public final class UsageStore {
     public func removeAccount(_ id: Account.ID) {
         guard let index = states.firstIndex(where: { $0.id == id }) else { return }
         repository.setSecret("", for: states[index].account)
+        repository.setOAuthLogin(nil, for: states[index].account)
+        if signingIn == id { cancelSignIn() }
         states.remove(at: index)
         save()
     }
@@ -114,6 +121,55 @@ public final class UsageStore {
 
     private func save() {
         repository.save(accounts)
+    }
+
+    // MARK: Browser sign-in
+
+    public func oauthLogin(for account: Account) -> OAuthLogin? {
+        repository.oauthLogin(for: account)
+    }
+
+    /// Opens the service's sign-in page and stores the login it returns. Cancels a sign-in
+    /// that is already running for another account, since both may need the same port.
+    public func signIn(_ account: Account, open: @escaping @Sendable (URL) -> Void) {
+        cancelSignIn()
+        signingIn = account.id
+        signInErrors[account.id] = nil
+        signInTask = Task { [weak self] in
+            let result: Result<OAuthLogin, OAuthError>
+            do throws(OAuthError) {
+                result = .success(try await OAuthSignIn.run(account.kind, open: open))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.signingIn = nil
+            self.signInTask = nil
+            switch result {
+            case .success(let login):
+                guard let index = self.states.firstIndex(where: { $0.id == account.id }) else { return }
+                self.repository.setOAuthLogin(login, for: self.states[index].account)
+                self.states[index].reset()
+                self.refreshSoon()
+            case .failure(let error):
+                self.signInErrors[account.id] = error
+            }
+        }
+    }
+
+    public func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        signingIn = nil
+    }
+
+    /// Forgets AI Meter's own login for this account. The service's other logins are not affected.
+    public func signOut(_ account: Account) {
+        repository.setOAuthLogin(nil, for: account)
+        signInErrors[account.id] = nil
+        guard let index = states.firstIndex(where: { $0.id == account.id }) else { return }
+        states[index].reset()
+        refreshSoon()
     }
 
     private func refreshSoon() {
