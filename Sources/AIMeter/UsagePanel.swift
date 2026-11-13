@@ -108,13 +108,16 @@ private struct AccountSection: View {
         }
     }
 
-    /// Two tanks per row. A third tank, such as a plan's API credit, starts a second row.
+    /// The rate-limit windows share one row, in the same order as the menu bar icon.
+    /// A dollar pool, such as a plan's API credit, gets a row of its own below them.
     private func tanks(_ condition: AccountState.Condition) -> some View {
         let slots = state.slots
+        let rows = [slots.filter { $0.kind != .pool }, slots.filter { $0.kind == .pool }]
+            .filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(stride(from: 0, to: slots.count, by: 2)), id: \.self) { start in
+            ForEach(rows, id: \.first?.kind) { row in
                 HStack(alignment: .top, spacing: 12) {
-                    ForEach(slots[start..<min(start + 2, slots.count)]) { slot in
+                    ForEach(row) { slot in
                         TankRow(slot: slot, condition: condition, kind: account.kind)
                     }
                 }
