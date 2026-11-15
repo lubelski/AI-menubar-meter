@@ -36,6 +36,7 @@ Open from the panel's gear button (⌘,). Each tab fits the window without scrol
 - **General**: the refresh interval (1–15 min) and launch at login.
 - **Appearance**: show or hide the service logos and the pace marker. A legend shows each way a tank can be drawn.
 - **Accounts**: the list of accounts.
+- **About**: the version, a link to this repository, and the license.
 
 ## Accounts
 
@@ -89,3 +90,7 @@ Run the app from the bundle that the script builds, not from `swift run`. `swift
 - `docs/investigations`: write-ups of problems that were investigated, with the evidence for each cause
 - `docs/journal`: dated retrospectives on how the work went, with proposals for the agent guidance
 - `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store
+
+## License
+
+MIT. See `LICENSE`.

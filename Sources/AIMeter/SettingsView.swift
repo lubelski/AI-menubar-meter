@@ -19,6 +19,10 @@ struct SettingsView: View {
                 AccountsSettingsView(store: store)
                     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             }
+            Tab("About", systemImage: "info.circle") {
+                AboutView()
+                    .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            }
         }
         // AppKit only blends the toolbar into the content when a scroll view sits
         // directly beneath it (true for the forms, not Accounts' split layout).
