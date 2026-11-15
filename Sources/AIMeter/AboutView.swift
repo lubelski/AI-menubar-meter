@@ -4,14 +4,17 @@ import SwiftUI
 struct AboutView: View {
     private static let repository = URL(string: "https://github.com/lubelski/AI-menubar-meter")!
 
+    /// The version and the commit it was built from, such as "Version 1.0 (767c825)".
+    /// `scripts/bundle.sh` writes the commit into `AIMeterGitCommit`.
     private var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String
-        let build = info?["CFBundleVersion"] as? String
-        return switch (short, build) {
-        case let (short?, build?): "Version \(short) (\(build))"
+        let commit = info?["AIMeterGitCommit"] as? String
+        return switch (short, commit) {
+        case let (short?, commit?): "Version \(short) (\(commit))"
         case let (short?, nil): "Version \(short)"
-        default: "Development build"
+        case let (nil, commit?): "Dev build \(commit)"
+        default: "Dev build"
         }
     }
 
@@ -33,10 +36,6 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-
-            Text("How much of each AI allowance you have left, in the menu bar.")
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
 
             Link("Source code on GitHub", destination: Self.repository)
 
