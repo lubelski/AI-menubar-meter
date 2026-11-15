@@ -2,6 +2,12 @@
 
 Rules for coding agents working in this repository. `README.md` covers what the app does and how it's built.
 
+## How to work
+
+By default, work in your own git worktree under `./.wt/`, named like `./.wt/wt-01/`, on a branch for the task. Commit and push as you go, and open a PR when the work is ready for review.
+
+The worktree keeps your changes apart from the main checkout and from other agents. Pushing as you go means the work survives if the session ends early. `/.wt/` is already in `.gitignore`.
+
 ## Screenshots in pull requests
 
 A PR that changes anything a person sees must include screenshots of each changed state in its description. This covers the menu bar icon, the panel, Settings, and any text or layout in them.
