@@ -79,7 +79,7 @@ Requires Xcode (for SwiftUI macros). `xcode-select` doesn't need to point at it;
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
-Run the app from the bundle that the script builds, not from `swift run`. `swift build` records the wrong SDK version in the binary, and macOS then runs the app in a compatibility mode in which the panel does not resize correctly. The script corrects the version. `docs/investigations/2026-11-09-panel-glass-bands.md` has the details.
+Run the app from the bundle that the script builds, not from `swift run`. `swift build` records the wrong SDK version in the binary, and macOS then runs the app in a compatibility mode in which the panel does not resize correctly. The script corrects the version. The comments in `scripts/bundle.sh` have the details.
 
 ## Layout
 
@@ -89,8 +89,6 @@ Run the app from the bundle that the script builds, not from `swift run`. `swift
   - `AccountState.swift`: an account with its latest reading, and the rule for when that reading is out of date
 - `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, and Settings
   - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for both the menu bar icon and the panel
-- `docs/investigations`: write-ups of problems that were investigated, with the evidence for each cause
-- `docs/journal`: dated retrospectives on how the work went, with proposals for the agent guidance
 - `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store
 
 ## License

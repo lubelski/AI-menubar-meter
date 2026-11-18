@@ -33,11 +33,15 @@ Two pitfalls:
 - **Async state:** wait with `await Task.sleep`, not `RunLoop.run`. The top-level code runs on the main actor, so blocking the run loop stops async state changes from arriving before the render.
 - **Background:** give the root view `.background(Color(nsColor: .windowBackgroundColor))`, or parts of the image render transparent.
 
-### Where the images go
+### Attaching the images
 
-1. Commit the images to the `pr-assets` branch, in a folder named after the PR's branch.
-2. Link each one as `https://github.com/lubelski/AI-menubar-meter/blob/<commit-sha>/<path>?raw=true`. The repo is private, so `raw.githubusercontent.com` links don't load.
+Upload screenshots with `gh`'s `--attach` flag. It works on `gh pr create`, `gh pr edit` and `gh pr comment`, and takes up to 50 files per command.
+
+- Reference each image in the body by its local path, as in `![Panel, error state](./shots/panel-error.png)`, and pass the same file with `--attach`. `gh` uploads it and rewrites the reference to the uploaded asset.
+- An attached file the body doesn't reference is appended to the end. Give it alt text after `#`: `--attach './panel-error.png#Panel, error state'`.
+
+Don't commit screenshots to the repo or to a side branch.
 
 ## Building and running
 
-Run only the app bundle that `scripts/bundle.sh` builds, never `swift run`. `swift build` stamps the binary with the wrong SDK version, and the panel then misbehaves. `docs/investigations/2026-11-09-panel-glass-bands.md` has the details.
+Run only the app bundle that `scripts/bundle.sh` builds, never `swift run`. `swift build` stamps the binary with the wrong SDK version, and the panel then misbehaves. The comments in `scripts/bundle.sh` have the details.
