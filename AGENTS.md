@@ -44,4 +44,4 @@ Don't commit screenshots to the repo or to a side branch.
 
 ## Building and running
 
-Run only the app bundle that `scripts/bundle.sh` builds, never `swift run`. `swift build` stamps the binary with the wrong SDK version, and the panel then misbehaves. `docs/investigations/2026-11-09-panel-glass-bands.md` has the details.
+Run only the app bundle that `scripts/bundle.sh` builds, never `swift run`. `swift build` stamps the binary with the wrong SDK version, and the panel then misbehaves. The comments in `scripts/bundle.sh` have the details.

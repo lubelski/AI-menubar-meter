@@ -20,7 +20,28 @@ cp "$BIN" "$APP/Contents/MacOS/AIMeter"
 # writes the deployment target (15.0) into the SDK field of the binary instead. macOS
 # reads that field to choose between its current behavior and a compatibility mode for
 # older apps, and the menu bar panel does not resize correctly in the compatibility mode.
-# See docs/investigations/2026-11-09-panel-glass-bands.md.
+#
+# Every Mach-O binary records `minos` (the oldest macOS it runs on) and `sdk` (the SDK
+# it was linked against) in LC_BUILD_VERSION. AppKit and SwiftUI read `sdk` at launch,
+# and an `sdk` older than 26 turns on the mode from before Liquid Glass.
+#
+#   Build                                   minos   sdk
+#   swift build (default engine)            15.0    15.0   <- wrong
+#   swift build --build-system native       15.0    27.2
+#   swiftc -target arm64-apple-macos15.0    15.0    27.2
+#
+# The object files carry the right SDK, so the link step sets the wrong value. Which
+# input to it does this is not known: the link command has no explicit version flag.
+#
+# The symptom: when the panel's content gets shorter while it is open (for example a
+# retry clears the Claude Code sign-in problem), the window keeps its height and
+# SwiftUI centers the content in it, leaving bands of empty glass above and below.
+# The panel also draws as a flat dark rectangle with a hairline border instead of
+# rounded Liquid Glass. This is why `swift run` must not be used to test the app.
+#
+# To check a build:  xcrun vtool -show-build <binary>
+# `sdk` must match `xcrun --sdk macosx --show-sdk-version` and differ from `minos`.
+# Restamping a copy to sdk 15.0 with `vtool -set-build-version` reproduces the fault.
 MIN_OS=15.0
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
 xcrun vtool -set-build-version macos "$MIN_OS" "$SDK_VERSION" -replace \
