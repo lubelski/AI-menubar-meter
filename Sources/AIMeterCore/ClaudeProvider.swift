@@ -19,6 +19,11 @@ public struct ClaudeProvider: Sendable {
             } catch .sessionExpired {
                 throw .claudeCode(.refreshFailed)
             }
+        } catch .sessionExpired where account.credential == .oauth {
+            // The server can revoke a token before it expires. Refresh once and try again.
+            token = try await OAuthSessions.shared.usableLogin(
+                for: account, secrets: secrets, rejecting: token).accessToken
+            data = try await Self.get(token)
         }
         guard var reading = Self.parse(data) else { throw .unexpectedResponse }
         reading.plan = plan?.capitalized

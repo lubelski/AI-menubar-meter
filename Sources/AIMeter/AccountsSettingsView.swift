@@ -204,6 +204,8 @@ private struct AccountForm: View {
             }
         }
         switch (account.kind, account.credential) {
+        case (_, .oauth):
+            BrowserSignInRow(store: store, account: account)
         case (.claude, .cli):
             LabeledContent("Login", value: "Claude Code, in your Keychain")
         case (.claude, .pasted):
@@ -226,6 +228,7 @@ private struct AccountForm: View {
         case (.codex, .cli): "Codex CLI"
         case (_, .cli): "Command-line login"
         case (_, .pasted): "Access token"
+        case (_, .oauth): "Browser sign-in"
         }
     }
 
@@ -237,6 +240,12 @@ private struct AccountForm: View {
             "A Claude OAuth access token. It's stored in your Keychain."
         case (.codex, .cli):
             "Uses the ChatGPT login from `codex login`. For a second OpenAI account, sign in with `CODEX_HOME` set to another folder and choose that folder here."
+        case (.claude, .oauth):
+            "AI Meter signs in to Claude in your browser and keeps its own login, separate from Claude Code's, so you can add as many Claude accounts as you like. It asks only to read your profile and usage."
+        case (.codex, .oauth):
+            "AI Meter signs in to ChatGPT in your browser, as `codex login` does, and keeps its own login, separate from the Codex CLI's. Sign in to a different ChatGPT account for each OpenAI account here."
+        case (.anthropicAPI, .oauth):
+            ""
         case (.codex, .pasted):
             "A ChatGPT access token. It's stored in your Keychain. Add the account ID if you're in a Team or Enterprise workspace."
         case (.anthropicAPI, _):
@@ -246,6 +255,51 @@ private struct AccountForm: View {
 }
 
 // MARK: - Shared pieces
+
+/// The account AI Meter signed in to in the browser, with buttons to sign in, again, or out.
+private struct BrowserSignInRow: View {
+    let store: UsageStore
+    let account: Account
+
+    var body: some View {
+        let login = store.oauthLogin(for: account)
+        let isSigningIn = store.signingIn == account.id
+        LabeledContent("Account") {
+            HStack {
+                Text(isSigningIn ? "Waiting for your browser…" : login.map { $0.email ?? "Signed in" } ?? "Not signed in")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if isSigningIn {
+                    Button("Cancel") { store.cancelSignIn() }
+                } else if login == nil {
+                    signInButton("Sign In…")
+                }
+            }
+        }
+        if login != nil, !isSigningIn {
+            HStack {
+                Spacer()
+                Button("Sign Out") { store.signOut(account) }
+                signInButton("Sign In Again…")
+            }
+        }
+        if let error = store.signInErrors[account.id] {
+            // The message marks command names with backticks; render them as code.
+            Text(LocalizedStringKey(error.message))
+                .font(.callout)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private func signInButton(_ title: String) -> some View {
+        Button(title) {
+            store.signIn(account) { url in
+                Task { @MainActor in NSWorkspace.shared.open(url) }
+            }
+        }
+    }
+}
 
 private struct CodexFolderRow: View {
     /// `nil` means the default folder.

@@ -44,21 +44,28 @@ Settings → Accounts lists your accounts with their connection status. Click + 
 Drag a row to change the order in the menu bar. Accounts of the same brand that sit next to each other share one logo.
 Each account has a name, a switch that hides it from the menu bar and the panel, and a sign-in source:
 
-| Kind | Default | Alternative |
+| Kind | Default | Alternatives |
 |---|---|---|
-| Claude | Claude Code's login (Keychain `Claude Code-credentials`, read via `/usr/bin/security` so there's no prompt) | Pasted OAuth access token |
-| OpenAI | Codex CLI's `auth.json` (the folder is set per account and defaults to `$CODEX_HOME` or `~/.codex`) | Pasted ChatGPT access token + optional account ID |
+| Claude | Claude Code's login (Keychain `Claude Code-credentials`, read via `/usr/bin/security` so there's no prompt) | Browser sign-in · pasted OAuth access token |
+| OpenAI | Codex CLI's `auth.json` (the folder is set per account and defaults to `$CODEX_HOME` or `~/.codex`) | Browser sign-in · pasted ChatGPT access token + optional account ID |
 | Anthropic API | Anthropic Admin API key: month-to-date spend from `/v1/organizations/cost_report` against a monthly budget you set | |
 
-Claude Code keeps one login per Mac, so a second Claude account needs a pasted token.
-For a second OpenAI account, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.
+**Browser sign-in** opens the service's sign-in page and keeps a login that belongs to AI Meter alone, so any number of Claude or OpenAI accounts can sit side by side.
+It runs the same OAuth flow (authorization code with PKCE) as `claude auth login` and `codex login`, using those tools' public OAuth clients, because neither service offers OAuth to other apps for usage data.
+The redirect comes back to a one-shot server on `127.0.0.1`: any free port for Claude, port 1455 for OpenAI (the only one its client accepts, so it fails while `codex login` is running).
+Claude sign-in asks only for `user:profile`, so the token can read usage but can't run models.
+The login is stored as JSON in AI Meter's Keychain item `account.<id>.oauth`, apart from any pasted token.
+AI Meter refreshes it five minutes before it expires, or when the server rejects it, one refresh at a time per account.
+
+Without browser sign-in, a second Claude account needs a pasted token, because Claude Code keeps one login per Mac.
+For a second OpenAI account through the CLI, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.
 
 On first launch AI Meter adds an account for each command-line login it finds. An upgrade from 1.0 keeps the accounts that were set up there.
 
 The list of accounts lives in UserDefaults. Pasted secrets live in AI Meter's own Keychain items (service `dev.lubelski.AIMeter`, one item per account), never in UserDefaults.
 
 The Claude and OpenAI usage endpoints are the undocumented ones `claude /usage` and `codex /status` use, so they may change.
-AI Meter never refreshes or writes CLI tokens itself, because a refresh rotates the token and would sign the CLI out.
+AI Meter never refreshes or writes CLI tokens itself (it does refresh its own browser sign-in logins, which nothing else uses), because a refresh rotates the token and would sign the CLI out.
 When the Claude Code token expires or the server rejects it, AI Meter runs `claude auth status`, which refreshes the login, and tries again.
 It runs that command at most every 10 minutes and never kills it, because a refresh that stops partway can sign you out.
 If the refresh doesn't help, the panel and Settings → Accounts explain the problem and offer a button that opens `claude` (or `claude auth login`) in Terminal.
