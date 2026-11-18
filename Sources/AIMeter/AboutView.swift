@@ -2,6 +2,8 @@ import SwiftUI
 
 /// The About tab: what the app is, which build is running, and where it comes from.
 struct AboutView: View {
+    @Bindable var updater: AppUpdater
+
     private static let repository = URL(string: "https://github.com/lubelski/AI-menubar-meter")!
 
     /// The version and the commit it was built from, such as "Version 1.0 (767c825)".
@@ -38,6 +40,16 @@ struct AboutView: View {
             }
 
             Link("Source code on GitHub", destination: Self.repository)
+
+            if updater.isAvailable {
+                VStack(spacing: 8) {
+                    Button("Check for Updates…") { updater.checkForUpdates() }
+                        .disabled(!updater.canCheck)
+                    Toggle("Install updates automatically", isOn: $updater.updatesAutomatically)
+                        .toggleStyle(.checkbox)
+                }
+                .padding(.top, 8)
+            }
 
             Spacer()
 

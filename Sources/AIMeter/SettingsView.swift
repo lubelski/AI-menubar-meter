@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     let store: UsageStore
+    let updater: AppUpdater
 
     var body: some View {
         TabView {
@@ -20,7 +21,7 @@ struct SettingsView: View {
                     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             }
             Tab("About", systemImage: "info.circle") {
-                AboutView()
+                AboutView(updater: updater)
                     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             }
         }

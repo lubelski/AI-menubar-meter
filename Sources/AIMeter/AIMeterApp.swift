@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct AIMeterApp: App {
     @State private var store: UsageStore
+    @State private var updater = AppUpdater()
 
     @AppStorage(Preferences.showLogos) private var showLogos = true
 
@@ -30,7 +31,7 @@ struct AIMeterApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(store: store)
+            SettingsView(store: store, updater: updater)
         }
         .windowResizability(.contentSize)
     }
