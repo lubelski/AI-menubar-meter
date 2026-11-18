@@ -31,6 +31,12 @@ if [[ "$STAMPED" != "$SDK_VERSION" ]]; then
   exit 1
 fi
 
+# Record the commit the app was built from, so the About tab can identify the build.
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  GIT_COMMIT="$GIT_COMMIT-dirty"
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -43,6 +49,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleVersion</key><string>1</string>
+  <key>AIMeterGitCommit</key><string>$GIT_COMMIT</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
