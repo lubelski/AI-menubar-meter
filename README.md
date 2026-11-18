@@ -81,13 +81,28 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 Run the app from the bundle that the script builds, not from `swift run`. `swift build` records the wrong SDK version in the binary, and macOS then runs the app in a compatibility mode in which the panel does not resize correctly. The script corrects the version. `docs/investigations/2026-11-09-panel-glass-bands.md` has the details.
 
+## Releases and updates
+
+A release build updates itself with [Sparkle](https://sparkle-project.org). It checks the feed about once a day, downloads a newer build, verifies its signature, and relaunches into it. The About tab has **Check for Updates…** and a checkbox that turns automatic updates off.
+
+```sh
+./scripts/release.sh 1.2.0            # build, sign, notarize, and publish v1.2.0 from main
+./scripts/release.sh 1.2.0 --dry-run  # build the files into build/release and publish nothing
+```
+
+The script publishes a GitHub Release with two files: the zipped app and `appcast.xml`, the feed. Installed copies read the feed from the latest release, so publishing the release ships the update. The one-time setup (a Developer ID certificate, a notarization login, and a Sparkle signing key) is described at the top of the script.
+
+- The version is the release tag. The build number is the commit count, and Sparkle compares build numbers, so releases are built from `main`.
+- A build from `bundle.sh` alone has no feed and never updates itself, so a development copy is not replaced by a release.
+- The repository that hosts releases must be public. Installed copies download the feed and the app without a login.
+
 ## Layout
 
 - `Sources/AIMeterCore`: accounts, readings, credential loading, providers, and `UsageStore` (testable, no UI)
   - `Account.swift`: the kinds of account and what the user stores for each one
   - `Providers.swift`: picks the provider for an account's kind. A new kind needs a case in `AccountKind`, a provider here, and a form in the Accounts settings.
   - `AccountState.swift`: an account with its latest reading, and the rule for when that reading is out of date
-- `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, and Settings
+- `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, Settings, and `AppUpdater` (Sparkle)
   - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for both the menu bar icon and the panel
 - `docs/investigations`: write-ups of problems that were investigated, with the evidence for each cause
 - `docs/journal`: dated retrospectives on how the work went, with proposals for the agent guidance
