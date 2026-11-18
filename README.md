@@ -90,7 +90,6 @@ Run the app from the bundle that the script builds, not from `swift run`. `swift
 - `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, and Settings
   - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for both the menu bar icon and the panel
 - `docs/investigations`: write-ups of problems that were investigated, with the evidence for each cause
-- `docs/journal`: dated retrospectives on how the work went, with proposals for the agent guidance
 - `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store
 
 ## License
