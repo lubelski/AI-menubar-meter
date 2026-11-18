@@ -14,6 +14,9 @@ enum Credentials {
         case .cli:
             let login = try await claudeCodeLogin()
             return (login.accessToken, login.plan)
+        case .oauth:
+            // Claude has no browser sign-in: Anthropic doesn't offer OAuth to other apps.
+            throw .notSignedIn
         }
     }
 
@@ -36,9 +39,13 @@ enum Credentials {
     // MARK: OpenAI
 
     static func codexTokens(
-        _ account: Account, secrets: any SecretStore
-    ) throws(ProviderError) -> (accessToken: String, accountID: String?) {
+        _ account: Account, secrets: any SecretStore, rejecting rejected: String? = nil
+    ) async throws(ProviderError) -> (accessToken: String, accountID: String?) {
         switch account.credential {
+        case .oauth:
+            let login = try await OAuthSessions.shared.usableLogin(
+                for: account, secrets: secrets, rejecting: rejected)
+            return (login.accessToken, login.accountID)
         case .pasted:
             guard let token = secrets.read(account.secretKey) else { throw .notSignedIn }
             return (token, account.chatGPTAccountID)

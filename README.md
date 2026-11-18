@@ -53,6 +53,8 @@ Each account has a name, a switch that hides it from the menu bar and the panel,
 Claude Code keeps one login per Mac, so a second Claude account needs a pasted token.
 For a second OpenAI account, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.
 
+AI Meter also has its own browser sign-in (OAuth with PKCE, a one-shot redirect server on `127.0.0.1`, and logins kept in the Keychain item `account.<id>.oauth` and refreshed by AI Meter). It is not offered yet: it needs an OAuth client that a service issues to AI Meter, and AI Meter never borrows another program's client. Anthropic offers none. OpenAI's "Sign in with ChatGPT" may.
+
 On first launch AI Meter adds an account for each command-line login it finds. An upgrade from 1.0 keeps the accounts that were set up there.
 
 The list of accounts lives in UserDefaults. Pasted secrets live in AI Meter's own Keychain items (service `dev.lubelski.AIMeter`, one item per account), never in UserDefaults.

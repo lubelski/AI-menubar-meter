@@ -58,6 +58,16 @@ public struct AccountRepository {
         secrets.write(value, for: account.secretKey)
     }
 
+    /// The login AI Meter obtained itself for this account, if any.
+    public func oauthLogin(for account: Account) -> OAuthLogin? {
+        secrets.read(OAuthSessions.key(for: account)).flatMap(OAuthLogin.decode)
+    }
+
+    /// Stores a login from AI Meter's own sign-in. `nil` deletes it.
+    public func setOAuthLogin(_ login: OAuthLogin?, for account: Account) {
+        secrets.write(login?.encoded() ?? "", for: OAuthSessions.key(for: account))
+    }
+
     // MARK: First load
 
     /// `UserDefaults` keys and Keychain account names used by AI Meter 1.0.
