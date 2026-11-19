@@ -62,6 +62,7 @@ private struct AccountSection: View {
     let state: AccountState
 
     @AppStorage(Preferences.showLogos) private var showLogos = true
+    @Environment(\.openURL) private var openURL
 
     private var account: Account { state.account }
 
@@ -106,12 +107,18 @@ private struct AccountSection: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Link(destination: account.kind.usagePage) {
-                Image(systemName: "arrow.up.forward.square")
+            Menu {
+                Button("View Usage on the Web") { openURL(account.kind.usagePage) }
+            } label: {
+                Image(systemName: "ellipsis")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help("Open \(account.kind.usagePage.host() ?? "usage page")")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            // A borderless menu's label ignores the foreground style but follows the tint.
+            // Secondary, like the panel's other small icons.
+            .tint(.secondary)
+            .help("More for \(account.name)")
         }
     }
 
