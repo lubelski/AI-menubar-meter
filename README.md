@@ -31,7 +31,7 @@ The panel says how old the reading is and why.
 
 ## Settings
 
-Open from the panel's gear button (⌘,). Each tab fits the window without scrolling.
+Open from the panel's ⋯ menu (⌘,). Each tab fits the window without scrolling.
 
 - **General**: the refresh interval (1–15 min) and launch at login.
 - **Appearance**: show or hide the service logos and the pace marker. A legend shows each way a tank can be drawn.
@@ -83,7 +83,7 @@ Run the app from the bundle that the script builds, not from `swift run`. `swift
 
 ## Releases and updates
 
-A release build updates itself with [Sparkle](https://sparkle-project.org). It checks the feed about once a day, downloads a newer build, verifies its signature, and relaunches into it. The About tab has **Check for Updates…** and a checkbox that turns automatic updates off.
+A release build updates itself with [Sparkle](https://sparkle-project.org). It checks the feed about once a day, downloads a newer build, verifies its signature, and relaunches into it. The panel's ⋯ menu and the About tab have **Check for Updates…**, and the About tab has a checkbox that turns automatic updates off.
 
 ```sh
 ./scripts/release.sh 1.2.0            # build, sign, notarize, and publish v1.2.0 from main
