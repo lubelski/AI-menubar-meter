@@ -3,6 +3,7 @@ import SwiftUI
 
 struct UsagePanel: View {
     let store: UsageStore
+    let updater: AppUpdater
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -14,7 +15,7 @@ struct UsagePanel: View {
                 AccountSection(store: store, state: state)
                 Divider()
             }
-            Footer(store: store)
+            Footer(store: store, updater: updater)
         }
         .padding(16)
         .frame(width: width)
@@ -248,6 +249,7 @@ private struct ScopedRow: View {
 
 private struct Footer: View {
     let store: UsageStore
+    let updater: AppUpdater
     @Environment(\.openSettings) private var openSettings
     @Environment(\.dismiss) private var dismiss
 
@@ -286,18 +288,25 @@ private struct Footer: View {
             .help("Refresh")
             .disabled(store.isRefreshing)
 
-            Button {
-                dismiss()
-                // A menu bar app isn't frontmost, so bring it forward or the window opens behind.
-                NSApp.activate()
-                openSettings()
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .help("Settings")
-            .keyboardShortcut(",")
-
             Menu {
+                // The order of a standard app menu. Only a release build can update itself.
+                if updater.isAvailable {
+                    Button("Check for Updates…") {
+                        // Sparkle shows its own window, so close the panel and come forward.
+                        dismiss()
+                        NSApp.activate()
+                        updater.checkForUpdates()
+                    }
+                    .disabled(!updater.canCheck)
+                }
+                Button("Settings…") {
+                    dismiss()
+                    // A menu bar app isn't frontmost, so bring it forward or the window opens behind.
+                    NSApp.activate()
+                    openSettings()
+                }
+                .keyboardShortcut(",")
+                Divider()
                 Button("Quit AI Meter") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
             } label: {
@@ -305,6 +314,7 @@ private struct Footer: View {
             }
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("More")
         }
         .buttonStyle(.borderless)
     }

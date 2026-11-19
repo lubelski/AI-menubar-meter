@@ -24,7 +24,7 @@ struct AIMeterApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            UsagePanel(store: store)
+            UsagePanel(store: store, updater: updater)
         } label: {
             Image(nsImage: MenuBarIcon.image(for: store.visibleStates, staleAfter: store.staleAfter, showLogos: showLogos))
         }
