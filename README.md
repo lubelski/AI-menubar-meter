@@ -103,7 +103,8 @@ The script publishes a GitHub Release with two files: the zipped app and `appcas
   - `Providers.swift`: picks the provider for an account's kind. A new kind needs a case in `AccountKind`, a provider here, and a form in the Accounts settings.
   - `AccountState.swift`: an account with its latest reading, and the rule for when that reading is out of date
 - `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, Settings, and `AppUpdater` (Sparkle)
-  - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for both the menu bar icon and the panel
+  - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for the menu bar icon, the panel, and the app icon
+- `Resources/AppIcon.icon`: the app icon, an Icon Composer file that `bundle.sh` compiles. `scripts/render-icon.sh` redraws its artwork from `TankDrawing.swift`.
 - `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store
 
 ## License
