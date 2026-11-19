@@ -44,7 +44,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public var usagePage: URL {
         switch self {
         case .claude: URL(string: "https://claude.ai/settings/usage")!
-        case .codex: URL(string: "https://chatgpt.com/codex/settings/usage")!
+        case .codex: URL(string: "https://chatgpt.com/settings/usage?tab=overview")!
         case .anthropicAPI: URL(string: "https://platform.claude.com/cost")!
         }
     }
