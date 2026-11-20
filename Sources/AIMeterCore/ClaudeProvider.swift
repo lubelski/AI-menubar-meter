@@ -13,15 +13,25 @@ public struct ClaudeProvider: Sendable {
             // Claude Code may have rotated its token, or the server revoked it early.
             // Let the CLI refresh it, then try once more.
             let login = try await Credentials.claudeCodeLogin(rejecting: token)
-            (token, plan) = (login.accessToken, login.plan)
+            (token, plan) = (login.accessToken, login.planName)
             do {
                 data = try await Self.get(token)
             } catch .sessionExpired {
                 throw .claudeCode(.refreshFailed)
             }
         }
-        guard var reading = Self.parse(data) else { throw .unexpectedResponse }
-        reading.plan = plan?.capitalized
+        guard let reading = Self.parse(data) else { throw .unexpectedResponse }
+        return Self.reading(reading, plan: plan)
+    }
+
+    /// Labels a reading with the plan. Ultra has no five-hour limit for verified accounts,
+    /// so an Ultra reading without one drops the session tank instead of keeping an empty slot.
+    static func reading(_ reading: Reading, plan: String?) -> Reading {
+        var reading = reading
+        reading.plan = plan
+        if plan == "Ultra", reading.tank(.session) == nil {
+            reading.absentTanks = [.session]
+        }
         return reading
     }
 

@@ -13,7 +13,7 @@ enum Credentials {
             return (token, nil)
         case .cli:
             let login = try await claudeCodeLogin()
-            return (login.accessToken, login.plan)
+            return (login.accessToken, login.planName)
         case .oauth:
             // Claude has no browser sign-in: Anthropic doesn't offer OAuth to other apps.
             throw .notSignedIn

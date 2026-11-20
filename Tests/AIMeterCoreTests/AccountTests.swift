@@ -80,6 +80,29 @@ struct AccountStateTests {
         #expect(state.slots.map { $0.tank != nil } == [true, false, true])
     }
 
+    @Test func ultraWithoutAFiveHourLimitHasNoSessionSlot() {
+        var state = AccountState(account: Account(kind: .claude))
+        let weekly = Reading(tanks: [Tank(kind: .weekly, title: "Weekly", used: 0.11)])
+
+        state.reading = ClaudeProvider.reading(weekly, plan: "Ultra")
+        #expect(state.reading?.plan == "Ultra")
+        #expect(state.slots.map(\.kind) == [.weekly])
+
+        // Max keeps its session limit, so a missing one stays an empty slot.
+        state.reading = ClaudeProvider.reading(weekly, plan: "Max")
+        #expect(state.slots.map(\.kind) == [.session, .weekly])
+    }
+
+    @Test func ultraThatReportsAFiveHourLimitKeepsIt() {
+        var state = AccountState(account: Account(kind: .claude))
+        state.reading = ClaudeProvider.reading(Reading(tanks: [
+            Tank(kind: .session, title: "Session", used: 0.2),
+            Tank(kind: .weekly, title: "Weekly", used: 0.11),
+        ]), plan: "Ultra")
+        #expect(state.slots.map(\.kind) == [.session, .weekly])
+        #expect(state.slots.allSatisfy { $0.tank != nil })
+    }
+
     @Test func aFableTankSitsBetweenSessionAndWeekly() {
         var state = AccountState(account: Account(kind: .claude))
         state.reading = Reading(tanks: [

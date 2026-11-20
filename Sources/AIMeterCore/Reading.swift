@@ -81,6 +81,9 @@ public struct Reading: Sendable, Equatable {
     public var plan: String?
     public var tanks: [Tank]
     public var scoped: [ScopedLimit]
+    /// Tanks the account's kind usually has but this plan doesn't, such as the session
+    /// limit on Claude Ultra. They get no slot, not an empty one.
+    public var absentTanks: Set<Tank.Kind> = []
 
     public init(plan: String? = nil, tanks: [Tank] = [], scoped: [ScopedLimit] = []) {
         self.plan = plan

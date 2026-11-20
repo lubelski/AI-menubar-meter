@@ -51,10 +51,12 @@ public struct AccountState: Sendable, Equatable, Identifiable {
     }
 
     /// The tanks to draw, in display order: every tank the kind always has, plus any
-    /// extra tank in the reading (such as a Claude plan's API credit).
+    /// extra tank in the reading (such as a Claude plan's API credit), minus any the
+    /// reading says the plan doesn't have.
     public var slots: [TankSlot] {
         let tanks = reading?.tanks ?? []
-        let kinds = Set(account.kind.expectedTanks).union(tanks.map(\.kind)).sorted()
+        let expected = Set(account.kind.expectedTanks).subtracting(reading?.absentTanks ?? [])
+        let kinds = expected.union(tanks.map(\.kind)).sorted()
         return kinds.map { kind in TankSlot(kind: kind, tank: tanks.first { $0.kind == kind }) }
     }
 
