@@ -7,6 +7,7 @@ A small macOS menu bar app that shows how much of each AI allowance you have lef
 | Claude | 5-hour session · weekly · API credit, when the plan includes one |
 | OpenAI (Codex) | 5-hour session · weekly |
 | Anthropic API | month-to-date spend against a budget you set |
+| OpenRouter | the credit balance, or one API key's spend against its limit (daily, weekly, monthly or total); a key without a limit is measured against a monthly budget you set |
 
 You can add any number of accounts of each kind, for example three OpenAI accounts and no Claude account.
 
@@ -49,6 +50,7 @@ Each account has a name, a switch that hides it from the menu bar and the panel,
 | Claude | Claude Code's login (Keychain `Claude Code-credentials`, read via `/usr/bin/security` so there's no prompt) | Pasted OAuth access token |
 | OpenAI | Codex CLI's `auth.json` (the folder is set per account and defaults to `$CODEX_HOME` or `~/.codex`) | Pasted ChatGPT access token + optional account ID |
 | Anthropic API | Anthropic Admin API key: month-to-date spend from `/v1/organizations/cost_report` against a monthly budget you set | |
+| OpenRouter | OpenRouter Management API key: the balance from `/api/v1/credits`, or a key chosen by name from `/api/v1/keys`. Both routes reject regular API keys. | |
 
 Claude Code keeps one login per Mac, so a second Claude account needs a pasted token.
 For a second OpenAI account, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.

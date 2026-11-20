@@ -112,6 +112,8 @@ public enum ProviderError: Error, Sendable, Equatable {
     case notSignedIn
     case sessionExpired
     case keyRejected
+    /// The OpenRouter key the account shows was deleted, disabled or has expired.
+    case keyNotFound
     case claudeCode(ClaudeCodeIssue)
     case rateLimited
     case network(String)
@@ -120,7 +122,7 @@ public enum ProviderError: Error, Sendable, Equatable {
     /// Errors the user has to fix (as opposed to ones that clear up on their own).
     public var needsAttention: Bool {
         switch self {
-        case .notSignedIn, .sessionExpired, .keyRejected, .claudeCode: true
+        case .notSignedIn, .sessionExpired, .keyRejected, .keyNotFound, .claudeCode: true
         case .rateLimited, .network, .unexpectedResponse: false
         }
     }
@@ -135,6 +137,7 @@ public enum ProviderError: Error, Sendable, Equatable {
         case .notSignedIn: "Not signed in"
         case .sessionExpired: "Sign-in expired"
         case .keyRejected: "Key was rejected"
+        case .keyNotFound: "Key not found"
         case .claudeCode(.signedOut): "Claude Code is signed out"
         case .claudeCode(.loginExpired): "Claude Code login expired"
         case .claudeCode(.refreshFailed): "Sign-in needs a refresh"

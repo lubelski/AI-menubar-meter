@@ -4,11 +4,13 @@ import Foundation
 public enum Brand: Sendable, Equatable {
     case anthropic
     case openAI
+    case openRouter
 
     public var title: String {
         switch self {
         case .anthropic: "Anthropic"
         case .openAI: "OpenAI"
+        case .openRouter: "OpenRouter"
         }
     }
 }
@@ -22,6 +24,8 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case codex
     /// An Anthropic API organization, read with an Admin key.
     case anthropicAPI
+    /// OpenRouter's prepaid credit balance, read with a Management API key.
+    case openRouter
 
     public var id: Self { self }
 
@@ -30,6 +34,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claude: "Claude"
         case .codex: "OpenAI"
         case .anthropicAPI: "Anthropic API"
+        case .openRouter: "OpenRouter"
         }
     }
 
@@ -37,6 +42,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .anthropicAPI: .anthropic
         case .codex: .openAI
+        case .openRouter: .openRouter
         }
     }
 
@@ -46,6 +52,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claude: URL(string: "https://claude.ai/settings/usage")!
         case .codex: URL(string: "https://chatgpt.com/settings/usage?tab=overview")!
         case .anthropicAPI: URL(string: "https://platform.claude.com/cost")!
+        case .openRouter: URL(string: "https://openrouter.ai/settings/credits")!
         }
     }
 
@@ -53,7 +60,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public var credentialSources: [CredentialSource] {
         switch self {
         case .claude, .codex: OAuthClient.for(self) == nil ? [.cli, .pasted] : [.cli, .oauth, .pasted]
-        case .anthropicAPI: [.pasted]
+        case .anthropicAPI, .openRouter: [.pasted]
         }
     }
 
@@ -62,7 +69,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public var expectedTanks: [Tank.Kind] {
         switch self {
         case .claude, .codex: [.session, .weekly]
-        case .anthropicAPI: [.pool]
+        case .anthropicAPI, .openRouter: [.pool]
         }
     }
 }
@@ -93,8 +100,10 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
     public var codexHome: String?
     /// Codex with a pasted token only: the workspace to read, for Team and Enterprise.
     public var chatGPTAccountID: String?
-    /// Anthropic API only: the monthly budget that spend is measured against.
+    /// Anthropic API, and OpenRouter keys without a limit: the monthly budget that spend is measured against.
     public var monthlyBudget: Double?
+    /// OpenRouter only: the hash of the API key to show. `nil` shows the account's credit balance.
+    public var openRouterKeyHash: String?
 
     public init(
         id: UUID = UUID(),
@@ -104,7 +113,8 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
         credential: CredentialSource? = nil,
         codexHome: String? = nil,
         chatGPTAccountID: String? = nil,
-        monthlyBudget: Double? = nil
+        monthlyBudget: Double? = nil,
+        openRouterKeyHash: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -114,6 +124,7 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
         self.codexHome = codexHome
         self.chatGPTAccountID = chatGPTAccountID
         self.monthlyBudget = monthlyBudget ?? (kind == .anthropicAPI ? Self.defaultMonthlyBudget : nil)
+        self.openRouterKeyHash = openRouterKeyHash
     }
 
     public static let defaultMonthlyBudget = 100.0
