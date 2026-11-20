@@ -9,6 +9,7 @@ An account that bills by use has no allowance, so it shows what you spent today 
 | OpenAI (Codex) | Tanks: 5-hour session · weekly |
 | Anthropic API | A spend chip: your organization's spend today, such as `$42` or `$1.2K`, as Anthropic reports it |
 | Claude Code (local) | A spend chip: what Claude Code used on this Mac today, estimated from its logs |
+| OpenRouter | A tank: the credit balance, or one API key's spend against its limit (daily, weekly, monthly or total). A key without a limit shows a spend chip. |
 
 You can add any number of accounts of each kind, for example three OpenAI accounts and no Claude account.
 
@@ -35,6 +36,8 @@ The panel says how old the reading is and why.
 
 The chip is a rounded box the height of a tank, with the day's spend in compact form: `$4.20`, `$42`, `$123`, `$1.2K`.
 Cents show only under $10. The panel has the exact amount, when the day starts over, and the month's total.
+
+An OpenRouter key without a limit also shows a chip, with the day's and the month's spend that OpenRouter reports, both in UTC.
 
 The two kinds of spend account get the amount from different places:
 
@@ -81,6 +84,7 @@ Each account has a name, a switch that hides it from the menu bar and the panel,
 | OpenAI | Codex CLI's `auth.json` (the folder is set per account and defaults to `$CODEX_HOME` or `~/.codex`) | Pasted ChatGPT access token + optional account ID |
 | Anthropic API | Anthropic Admin API key: today's and the month's spend from `/v1/organizations/cost_report` | |
 | Claude Code (local) | Nothing to sign in to. It reads Claude Code's logs on this Mac. | |
+| OpenRouter | OpenRouter Management API key: the balance from `/api/v1/credits`, or a key chosen by name from `/api/v1/keys`. Both routes reject regular API keys. | |
 
 Claude Code keeps one login per Mac, so a second Claude account needs a pasted token.
 For a second OpenAI account, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.

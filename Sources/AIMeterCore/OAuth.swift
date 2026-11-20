@@ -31,8 +31,9 @@ public struct OAuthClient: Sendable {
         switch kind {
         // Anthropic offers no OAuth to other apps, and its terms keep Claude subscription
         // logins to its own products. OpenAI's own "Sign in with ChatGPT" may fit; it needs
-        // a client registered for AI Meter.
-        case .claude, .codex, .anthropicAPI, .claudeCodeLocal: nil
+        // a client registered for AI Meter. OpenRouter's PKCE sign-in issues a regular
+        // API key, which can't read the account's credit balance.
+        case .claude, .codex, .anthropicAPI, .claudeCodeLocal, .openRouter: nil
         }
     }
 

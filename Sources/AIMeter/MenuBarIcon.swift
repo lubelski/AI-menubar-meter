@@ -69,7 +69,7 @@ enum MenuBarIcon {
                 if index > 0 { plates[plates.count - 1].items.append(.gap(barGap)) }
                 plates[plates.count - 1].items.append(.tank(slot.kind, TankFill(slot, condition: condition)))
             }
-            if state.account.kind.showsSpend {
+            if state.showsSpend {
                 if !state.slots.isEmpty { plates[plates.count - 1].items.append(.gap(barGap)) }
                 plates[plates.count - 1].items.append(.spend(SpendFill(state, condition: condition)))
             }

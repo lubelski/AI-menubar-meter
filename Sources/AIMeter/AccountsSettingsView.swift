@@ -160,8 +160,10 @@ private struct AccountForm: View {
             // One section for a spend account's source and its settings, so the tab fits without scrolling.
             Section {
                 signIn
-                if account.kind.showsSpend { spendFields }
+                if state.showsSpend { spendFields }
             } footer: {
+                // An OpenRouter key without a limit has one more row than the other spend
+                // accounts, so it leaves the second note out to fit.
                 SettingsFootnote(account.kind.showsSpend ? "\(signInNote) \(Self.spendNote)" : signInNote)
             }
 
@@ -219,6 +221,9 @@ private struct AccountForm: View {
             CommittedTextField(title: "Account ID", prompt: "Optional", value: binding(\.chatGPTAccountID))
         case (.anthropicAPI, _):
             SecretField(title: "Admin API key", prompt: "sk-ant-admin01-…", store: store, account: account)
+        case (.openRouter, _):
+            SecretField(title: "Management key", prompt: "sk-or-v1-…", store: store, account: account)
+            OpenRouterKeyPicker(store: store, account: account, keyHash: binding(\.openRouterKeyHash))
         case (.claudeCodeLocal, _):
             LabeledContent("Logs") {
                 Text((ClaudeCodeLocalProvider.defaultLogFolder.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath)
@@ -260,8 +265,10 @@ private struct AccountForm: View {
             "Uses the ChatGPT login from `codex login`. For a second OpenAI account, sign in with `CODEX_HOME` set to another folder and choose that folder here."
         case (.codex, .oauth):
             "AI Meter signs in to ChatGPT in your browser and keeps its own login, separate from the Codex CLI's. Sign in to a different ChatGPT account for each OpenAI account here."
-        case (.claude, .oauth), (.anthropicAPI, .oauth):
+        case (.claude, .oauth), (.anthropicAPI, .oauth), (.openRouter, .oauth):
             ""
+        case (.openRouter, _):
+            "Your credit balance, or one API key. A key without a limit shows what it spent today, from midnight UTC. Reading either needs a Management API key, not a regular one. Create one on [OpenRouter](https://openrouter.ai/settings/management-keys)."
         case (.claudeCodeLocal, _):
             "What Claude Code used on this Mac today, at Anthropic's list prices, worked out from the token counts in its logs. The logs don't say who paid, so usage covered by a Claude subscription counts too."
         case (.codex, .pasted):
@@ -315,6 +322,60 @@ private struct BrowserSignInRow: View {
             store.signIn(account) { url in
                 Task { @MainActor in NSWorkspace.shared.open(url) }
             }
+        }
+    }
+}
+
+/// Chooses what an OpenRouter account shows: the credit balance or one API key.
+/// Lists the keys with the account's management key.
+private struct OpenRouterKeyPicker: View {
+    let store: UsageStore
+    let account: Account
+    /// `nil` means the credit balance.
+    @Binding var keyHash: String?
+
+    @State private var keys: [OpenRouterKey] = []
+    @State private var error: ProviderError?
+
+    var body: some View {
+        let managementKey = store.secret(for: account)
+        let chosen = keys.first { $0.hash == keyHash }
+        Picker("Show", selection: $keyHash) {
+            Text("Credit balance").tag(String?.none)
+            ForEach(keys) { key in
+                Text("\(key.name) · \(Self.limitText(key))").tag(Optional(key.hash))
+            }
+            // Keep a saved key selectable before the list loads, or after it's deleted.
+            if let keyHash, chosen == nil {
+                Text("Saved key").tag(Optional(keyHash))
+            }
+        }
+        .task(id: managementKey) { await load(managementKey) }
+        if let error {
+            Text("Couldn't list keys: \(error.message)")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func load(_ managementKey: String) async {
+        guard !managementKey.isEmpty else { keys = []; error = nil; return }
+        do {
+            keys = try await OpenRouterProvider.listKeys(managementKey: managementKey)
+            error = nil
+        } catch {
+            self.error = error
+        }
+    }
+
+    private static func limitText(_ key: OpenRouterKey) -> String {
+        guard let limit = key.limit else { return "no limit" }
+        let amount = limit.formatted(.currency(code: "USD").precision(.fractionLength(0)))
+        return switch key.limitReset {
+        case "daily": "\(amount) a day"
+        case "weekly": "\(amount) a week"
+        case "monthly": "\(amount) a month"
+        default: amount
         }
     }
 }

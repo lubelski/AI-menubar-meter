@@ -11,6 +11,7 @@ enum BrandMark {
         switch brand {
         case .anthropic: drawSpark(in: rect, color: color)
         case .openAI: drawKnot(in: rect, color: color)
+        case .openRouter: drawFork(in: rect, color: color)
         }
     }
 
@@ -64,6 +65,37 @@ enum BrandMark {
             path.append(link)
         }
         path.lineWidth = lineWidth
+        color.setStroke()
+        path.stroke()
+    }
+
+    /// OpenRouter's routing mark, reduced to one line that splits into two arrows
+    /// heading up-right and down-right.
+    private static func drawFork(in rect: NSRect, color: NSColor) {
+        let lineWidth = max(rect.width * 0.11, 0.9)
+        let inset = lineWidth / 2
+        let left = rect.minX + inset, right = rect.maxX - inset
+        let top = rect.maxY - inset, bottom = rect.minY + inset
+        let split = NSPoint(x: rect.minX + rect.width * 0.42, y: rect.midY)
+        let head = rect.width * 0.28
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.move(to: NSPoint(x: left, y: rect.midY))
+        path.line(to: split)
+        for tipY in [top, bottom] {
+            let tip = NSPoint(x: right, y: tipY)
+            let toward: CGFloat = tipY > rect.midY ? -1 : 1
+            path.move(to: split)
+            path.curve(to: tip,
+                       controlPoint1: NSPoint(x: split.x + rect.width * 0.2, y: rect.midY),
+                       controlPoint2: NSPoint(x: tip.x - rect.width * 0.25, y: tip.y))
+            // The arrowhead: one arm back along the top or bottom edge, one toward the middle.
+            path.move(to: NSPoint(x: tip.x - head, y: tip.y))
+            path.line(to: tip)
+            path.line(to: NSPoint(x: tip.x - head * 0.3, y: tip.y + toward * head * 0.9))
+        }
         color.setStroke()
         path.stroke()
     }

@@ -4,11 +4,13 @@ import Foundation
 public enum Brand: Sendable, Equatable {
     case anthropic
     case openAI
+    case openRouter
 
     public var title: String {
         switch self {
         case .anthropic: "Anthropic"
         case .openAI: "OpenAI"
+        case .openRouter: "OpenRouter"
         }
     }
 }
@@ -24,6 +26,8 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case anthropicAPI
     /// Claude Code on this Mac, with spend estimated from its own logs.
     case claudeCodeLocal
+    /// OpenRouter's prepaid credit balance or one of its API keys, read with a Management API key.
+    case openRouter
 
     public var id: Self { self }
 
@@ -33,6 +37,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .codex: "OpenAI"
         case .anthropicAPI: "Anthropic API"
         case .claudeCodeLocal: "Claude Code (local)"
+        case .openRouter: "OpenRouter"
         }
     }
 
@@ -40,6 +45,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .anthropicAPI, .claudeCodeLocal: .anthropic
         case .codex: .openAI
+        case .openRouter: .openRouter
         }
     }
 
@@ -49,6 +55,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claude: URL(string: "https://claude.ai/settings/usage")!
         case .codex: URL(string: "https://chatgpt.com/settings/usage?tab=overview")!
         case .anthropicAPI, .claudeCodeLocal: URL(string: "https://platform.claude.com/cost")!
+        case .openRouter: URL(string: "https://openrouter.ai/settings/credits")!
         }
     }
 
@@ -56,7 +63,7 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public var credentialSources: [CredentialSource] {
         switch self {
         case .claude, .codex: OAuthClient.for(self) == nil ? [.cli, .pasted] : [.cli, .oauth, .pasted]
-        case .anthropicAPI: [.pasted]
+        case .anthropicAPI, .openRouter: [.pasted]
         // Nothing to sign in to. `cli` stands for "what the command-line tool keeps on this Mac".
         case .claudeCodeLocal: [.cli]
         }
@@ -68,11 +75,15 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude, .codex: [.session, .weekly]
         case .anthropicAPI, .claudeCodeLocal: []
+        // The balance and a key with a limit are tanks. A key without a limit shows a spend
+        // chip, which `AccountState.slots` allows for once the first reading says so.
+        case .openRouter: [.pool]
         }
     }
 
-    /// True for a kind that bills by use and has no limit. It shows what was spent as an
-    /// amount, not a tank that drains.
+    /// True for a kind that always bills by use and has no limit. It shows what was spent as
+    /// an amount, not a tank that drains. An OpenRouter account does so only for a key
+    /// without a limit, so ask `AccountState.showsSpend` about one account.
     public var showsSpend: Bool { self == .anthropicAPI || self == .claudeCodeLocal }
 }
 
@@ -110,6 +121,8 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
     /// Spend accounts only: the discount the user's contract takes off list prices, as a
     /// percentage from 0 to 100. Every amount shown has it taken off.
     public var discountPercent: Double?
+    /// OpenRouter only: the hash of the API key to show. `nil` shows the account's credit balance.
+    public var openRouterKeyHash: String?
 
     public init(
         id: UUID = UUID(),
@@ -121,7 +134,8 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
         chatGPTAccountID: String? = nil,
         spendWarning: Double? = nil,
         spendCritical: Double? = nil,
-        discountPercent: Double? = nil
+        discountPercent: Double? = nil,
+        openRouterKeyHash: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -133,6 +147,7 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
         self.spendWarning = spendWarning
         self.spendCritical = spendCritical
         self.discountPercent = discountPercent
+        self.openRouterKeyHash = openRouterKeyHash
     }
 
     /// `dollars` with the account's discount taken off.

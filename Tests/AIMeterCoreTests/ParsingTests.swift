@@ -160,6 +160,88 @@ struct CostReportTests {
     }
 }
 
+@Suite("OpenRouter")
+struct OpenRouterTests {
+    private let now = Date(timeIntervalSince1970: 1_795_176_000) // Thu 2026-11-20 08:00 UTC
+
+    private func key(limit: String, reset: String, remaining: String, usage: Double = 6.85, today: Double = 0) throws -> OpenRouterKey {
+        let json = Data("""
+        { "data": [ { "hash": "abc", "name": "Rheo", "label": "sk-or-v1-0e6...2ea", "disabled": false,
+                      "limit": \(limit), "limit_remaining": \(remaining), "limit_reset": \(reset),
+                      "usage": 6.85, "usage_daily": \(today), "usage_weekly": 0, "usage_monthly": \(usage) } ] }
+        """.utf8)
+        return try #require(OpenRouterProvider.parseKeys(json)?.first)
+    }
+
+    @Test func creditsAreUsageAgainstCreditsBought() throws {
+        let json = Data(#"{ "data": { "total_credits": 100.5, "total_usage": 25.75 } }"#.utf8)
+        let dollars = try #require(OpenRouterProvider.parseCredits(json))
+        #expect(dollars == Dollars(used: 25.75, limit: 100.5))
+    }
+
+    @Test func errorBodyIsNotAReading() {
+        let json = Data(#"{ "error": { "code": 403, "message": "Only management keys can perform this operation" } }"#.utf8)
+        #expect(OpenRouterProvider.parseCredits(json) == nil)
+        #expect(OpenRouterProvider.parseKeys(json) == nil)
+    }
+
+    @Test func monthlyLimitResetsAtTheNextUTCMonth() throws {
+        let tank = try #require(key(limit: "50", reset: #""monthly""#, remaining: "43.15").tank(now: now))
+        #expect(tank.title == "This month")
+        #expect(abs(tank.dollars!.used - 6.85) < 0.0001)
+        #expect(tank.dollars!.limit == 50)
+        #expect(tank.resetsAt?.formatted(.iso8601) == "2026-12-01T00:00:00Z")
+        #expect(tank.duration == TimeInterval(30 * 86_400))
+    }
+
+    @Test func weeklyLimitResetsOnMonday() throws {
+        let tank = try #require(key(limit: "20", reset: #""weekly""#, remaining: "15").tank(now: now))
+        #expect(tank.title == "This week")
+        #expect(tank.resetsAt?.formatted(.iso8601) == "2026-11-23T00:00:00Z")
+        #expect(tank.duration == TimeInterval(7 * 86_400))
+    }
+
+    @Test func limitThatNeverResetsHasNoResetTime() throws {
+        let tank = try #require(key(limit: "10", reset: "null", remaining: "4").tank(now: now))
+        #expect(tank.title == "Key limit")
+        #expect(tank.dollars == Dollars(used: 6, limit: 10))
+        #expect(tank.resetsAt == nil)
+    }
+
+    @Test func keyWithoutALimitShowsWhatItSpent() throws {
+        let key = try key(limit: "null", reset: "null", remaining: "null", usage: 6.97, today: 1.25)
+        #expect(key.tank(now: now) == nil)
+        let spend = key.spend(now: now)
+        #expect(spend.today == 1.25)
+        #expect(spend.monthToDate == 6.97)
+        #expect(spend.isUTCDay)
+        #expect(spend.resetsAt.formatted(.iso8601) == "2026-11-21T00:00:00Z")
+    }
+
+    @Test func anAccountWhoseReadingIsSpendShowsAChipAndNoEmptyTank() {
+        var state = AccountState(account: Account(kind: .openRouter, openRouterKeyHash: "abc"))
+        #expect(state.showsSpend == false)
+        #expect(state.slots.map(\.kind) == [.pool])
+        state.reading = Reading(spend: Spend(today: 1.25, monthToDate: 6.97, resetsAt: now, isUTCDay: true))
+        #expect(state.showsSpend)
+        #expect(state.slots.isEmpty)
+    }
+
+    @Test func noKeyMeansNotSignedIn() async {
+        let account = Account(kind: .openRouter)
+        #expect(account.credential == .pasted)
+        #expect(account.openRouterKeyHash == nil)
+        let result = await Providers.fetch(account, secrets: MemorySecrets([:]))
+        #expect(result == .failure(.notSignedIn))
+    }
+
+    @Test func accountsSavedBeforeKeyChoiceStillDecode() throws {
+        let json = Data(#"{ "id": "6F9619FF-8B86-D011-B42D-00C04FC964FF", "kind": "openRouter", "name": "OpenRouter", "isVisible": true, "credential": "pasted" }"#.utf8)
+        let account = try JSONDecoder().decode(Account.self, from: json)
+        #expect(account.openRouterKeyHash == nil)
+    }
+}
+
 @Suite struct ClaudeCodeLoginTests {
     private func payload(token: String, expires: String, refreshExpires: String? = nil) -> Data {
         let refresh = refreshExpires.map { #", "refreshTokenExpiresAt": \#($0)"# } ?? ""
