@@ -157,10 +157,12 @@ private struct AccountForm: View {
                 Toggle("Show in menu bar and panel", isOn: binding(\.isVisible))
             }
 
+            // One section for a spend account's source and its settings, so the tab fits without scrolling.
             Section {
                 signIn
+                if account.kind.showsSpend { spendFields }
             } footer: {
-                SettingsFootnote(signInNote)
+                SettingsFootnote(account.kind.showsSpend ? "\(signInNote) \(Self.spendNote)" : signInNote)
             }
 
             Section {
@@ -217,9 +219,25 @@ private struct AccountForm: View {
             CommittedTextField(title: "Account ID", prompt: "Optional", value: binding(\.chatGPTAccountID))
         case (.anthropicAPI, _):
             SecretField(title: "Admin API key", prompt: "sk-ant-admin01-…", store: store, account: account)
-            TextField("Monthly budget", value: binding(\.monthlyBudget),
-                      format: .currency(code: "USD").precision(.fractionLength(0)))
+        case (.claudeCodeLocal, _):
+            LabeledContent("Logs") {
+                Text((ClaudeCodeLocalProvider.defaultLogFolder.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private static let spendNote = "The amount turns orange and red when the day's spend reaches the amounts above. The discount is the percentage your contract takes off list prices."
+
+    /// The settings every spend account has: when the amount changes color, and the discount.
+    @ViewBuilder
+    private var spendFields: some View {
+        TextField("Turn orange at", value: binding(\.spendWarning),
+                  format: .currency(code: "USD").precision(.fractionLength(0)), prompt: Text("Never"))
+        TextField("Turn red at", value: binding(\.spendCritical),
+                  format: .currency(code: "USD").precision(.fractionLength(0)), prompt: Text("Never"))
+        TextField("Discount (%)", value: binding(\.discountPercent),
+                  format: .number.precision(.fractionLength(0...2)), prompt: Text("None"))
     }
 
     private func title(of source: CredentialSource) -> String {
@@ -244,10 +262,12 @@ private struct AccountForm: View {
             "AI Meter signs in to ChatGPT in your browser and keeps its own login, separate from the Codex CLI's. Sign in to a different ChatGPT account for each OpenAI account here."
         case (.claude, .oauth), (.anthropicAPI, .oauth):
             ""
+        case (.claudeCodeLocal, _):
+            "What Claude Code used on this Mac today, at Anthropic's list prices, worked out from the token counts in its logs. The logs don't say who paid, so usage covered by a Claude subscription counts too."
         case (.codex, .pasted):
             "A ChatGPT access token. It's stored in your Keychain. Add the account ID if you're in a Team or Enterprise workspace."
         case (.anthropicAPI, _):
-            "Your organization's month-to-date API spend, measured against this budget. Create an Admin key in [Claude Console](https://platform.claude.com) under Settings → Admin keys."
+            "Your whole organization's API spend today, as Anthropic reports it. The day starts at midnight UTC, because the report comes in whole UTC days. Create an Admin key in [Claude Console](https://platform.claude.com) under Settings → Admin keys."
         }
     }
 }

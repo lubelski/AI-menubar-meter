@@ -58,6 +58,14 @@ public struct AccountState: Sendable, Equatable, Identifiable {
         return kinds.map { kind in TankSlot(kind: kind, tank: tanks.first { $0.kind == kind }) }
     }
 
+    /// What the account spent, with its discount taken off. The reading holds list prices.
+    public var spend: Spend? {
+        guard var spend = reading?.spend else { return nil }
+        spend.today = account.discounted(spend.today)
+        spend.monthToDate = account.discounted(spend.monthToDate)
+        return spend
+    }
+
     /// Forgets everything read so far. Used when the account starts reading from a different login.
     mutating func reset() {
         reading = nil

@@ -122,8 +122,29 @@ struct CostReportTests {
         }
         """.utf8)
         let report = try #require(AnthropicCostProvider.parse(json))
-        #expect(report.cents == 1334.5)
+        #expect(report.days.map(\.cents) == [1334.5, 0])
+        #expect(report.days.map { $0.start.formatted(.iso8601) } == ["2026-11-01T00:00:00Z", "2026-11-02T00:00:00Z"])
         #expect(report.nextPage == "page_abc")
+    }
+
+    @Test func todayIsTheCurrentUTCDayAndTheMonthIsEveryDay() {
+        let day = { (iso: String) in try! Date(iso, strategy: .iso8601) }
+        let days = [
+            AnthropicCostProvider.Day(start: day("2026-11-03T00:00:00Z"), cents: 5000),
+            AnthropicCostProvider.Day(start: day("2026-11-04T00:00:00Z"), cents: 2500),
+            AnthropicCostProvider.Day(start: day("2026-11-05T00:00:00Z"), cents: 1234),
+        ]
+        let now = Date(timeIntervalSince1970: 1_793_865_540) // 2026-11-05 07:59 UTC
+        let spend = AnthropicCostProvider.spend(from: days, now: now)
+        #expect(spend.today == 12.34)
+        #expect(spend.monthToDate == 87.34)
+        #expect(spend.resetsAt.formatted(.iso8601) == "2026-11-06T00:00:00Z")
+    }
+
+    @Test func aDayMissingFromTheReportCountsAsNothingSpent() {
+        let yesterday = AnthropicCostProvider.Day(start: try! Date("2026-11-04T00:00:00Z", strategy: .iso8601), cents: 2500)
+        let now = Date(timeIntervalSince1970: 1_793_865_540)
+        #expect(AnthropicCostProvider.spend(from: [yesterday], now: now).today == 0)
     }
 
     @Test func stopsWhenNoMorePages() throws {
@@ -237,5 +258,128 @@ struct CostReportTests {
         }
         try await Task.sleep(for: .seconds(1.5))
         #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+}
+
+@Suite("Spend")
+struct SpendTests {
+    @Test(arguments: [
+        (0, "$0.00"), (0.4, "$0.40"), (4.2, "$4.20"), (9.994, "$9.99"), (9.996, "$10"),
+        (42.4, "$42"), (123, "$123"), (999.4, "$999"), (999.6, "$1.0K"), (1234, "$1.2K"),
+        (9960, "$10K"), (12_345, "$12K"), (123_456, "$123K"), (999_600, "$1.0M"), (1_234_567, "$1.2M"),
+    ])
+    func compactDollarsStayWithinFiveCharacters(dollars: Double, text: String) {
+        #expect(CompactDollars.string(dollars) == text)
+        #expect(text.count <= 5)
+    }
+
+    @Test func theAmountChangesColorAtEachThreshold() {
+        let account = Account(kind: .anthropicAPI, spendWarning: 50, spendCritical: 100)
+        #expect(account.spendLevel(49.99) == .normal)
+        #expect(account.spendLevel(50) == .warning)
+        #expect(account.spendLevel(100) == .critical)
+    }
+
+    @Test func anAccountWithNoThresholdsNeverChangesColor() {
+        #expect(Account(kind: .anthropicAPI).spendLevel(1_000_000) == .normal)
+    }
+
+    @Test func aNewThresholdKeepsTheReading() {
+        let account = Account(kind: .anthropicAPI)
+        var changed = account
+        changed.spendWarning = 50
+        #expect(account.readsTheSame(as: changed))
+    }
+}
+
+@Suite("Claude Code local spend")
+struct ClaudeCodeLocalTests {
+    private func line(
+        id: String, request: String = "req", time: String = "2026-11-05T07:00:00.123Z", model: String = "claude-opus-5-5",
+        input: Int = 0, output: Int = 0, read: Int = 0, write5m: Int = 0, write1h: Int = 0
+    ) -> String {
+        #"{"type":"assistant","timestamp":"\#(time)","requestId":"\#(request)","message":{"id":"\#(id)","model":"\#(model)","usage":{"input_tokens":\#(input),"output_tokens":\#(output),"cache_read_input_tokens":\#(read),"cache_creation_input_tokens":\#(write5m + write1h),"cache_creation":{"ephemeral_5m_input_tokens":\#(write5m),"ephemeral_1h_input_tokens":\#(write1h)},"speed":"standard"}}}"#
+    }
+
+    @Test func pricesEachKindOfToken() throws {
+        // Opus 5.5: $4 in, $20 out, cache reads at 0.05x, 5-minute writes at 1.25x, 1-hour writes at 2x.
+        let usage = TokenUsage(input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000,
+                               cacheWrite5m: 1_000_000, cacheWrite1h: 1_000_000)
+        let dollars = try #require(ModelPrices.dollars(for: usage, model: "claude-opus-5-5"))
+        #expect(abs(dollars - (4 + 20 + 0.2 + 5 + 8)) < 1e-9)
+    }
+
+    @Test func theLongestModelPrefixWins() {
+        #expect(ModelPrices.price(for: "claude-opus-5-5")?.input == 4)
+        #expect(ModelPrices.price(for: "claude-opus-5")?.input == 5)
+        #expect(ModelPrices.price(for: "claude-haiku-4-5-20251001")?.input == 1)
+        #expect(ModelPrices.price(for: "claude-unknown-9") == nil)
+    }
+
+    @Test func fastModeAndLongHaikuPromptsCostMore() throws {
+        var usage = TokenUsage(input: 1_000_000)
+        usage.isFast = true
+        #expect(ModelPrices.dollars(for: usage, model: "claude-fable-5-2") == 16)
+        #expect(ModelPrices.dollars(for: TokenUsage(input: 100_000), model: "claude-haiku-5-5") == 0.01)
+        #expect(ModelPrices.dollars(for: TokenUsage(input: 200_000), model: "claude-haiku-5-5") == 0.1)
+    }
+
+    @Test func aResponseLoggedOncePerBlockCountsOnce() {
+        let log = [
+            line(id: "msg_1", output: 1_000_000),
+            line(id: "msg_1", output: 1_000_000),
+            #"{"type":"user","timestamp":"2026-11-05T07:00:01Z","message":{"role":"user","content":"the word \"usage\" in a prompt"}}"#,
+            line(id: "msg_2", output: 500_000),
+            line(id: "msg_3", model: "<synthetic>"),
+            "not json",
+        ].joined(separator: "\n")
+        let responses = ClaudeCodeLog.parse(Data(log.utf8))
+        #expect(responses.map(\.id) == ["msg_1|req", "msg_2|req"])
+        #expect(responses.map(\.dollars) == [20, 10])
+    }
+
+    @Test func todayAndTheMonthFollowTheLocalCalendar() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        let now = try! Date("2026-11-05T20:00:00Z", strategy: .iso8601) // noon in Los Angeles
+        func response(_ id: String, _ time: String, _ dollars: Double?, model: String = "claude-opus-5-5") -> ClaudeCodeLog.Response {
+            .init(id: id, time: try! Date(time, strategy: .iso8601), model: model, dollars: dollars)
+        }
+        let spend = ClaudeCodeLocalProvider.spend(from: [
+            response("a", "2026-11-05T09:00:00Z", 3),  // 1 AM local today
+            response("a", "2026-11-05T09:00:00Z", 3),  // the same response in a second file
+            response("b", "2026-11-05T07:00:00Z", 5),  // 11 PM local yesterday
+            response("c", "2026-11-01T06:00:00Z", 100), // October 31 local
+            response("d", "2026-11-05T10:00:00Z", nil, model: "claude-next-9"),
+        ], now: now, calendar: calendar)
+        #expect(spend.today == 3)
+        #expect(spend.monthToDate == 8)
+        #expect(spend.isUTCDay == false)
+        #expect(spend.unpricedModels == ["claude-next-9"])
+        #expect(spend.resetsAt == (try! Date("2026-11-06T08:00:00Z", strategy: .iso8601)))
+    }
+}
+
+@Suite("Discount")
+struct DiscountTests {
+    @Test func theDiscountComesOffBothAmountsAndTheThresholdsSeeTheResult() {
+        var state = AccountState(account: Account(kind: .anthropicAPI, spendWarning: 90, discountPercent: 15))
+        state.reading = Reading(spend: Spend(today: 100, monthToDate: 1000, resetsAt: .now, isUTCDay: true))
+        #expect(state.spend?.today == 85)
+        #expect(state.spend?.monthToDate == 850)
+        #expect(state.account.spendLevel(state.spend!.today) == .normal)
+    }
+
+    @Test func aDiscountOutsideZeroToOneHundredIsClamped() {
+        #expect(Account(kind: .claudeCodeLocal, discountPercent: 250).discounted(40) == 0)
+        #expect(Account(kind: .claudeCodeLocal, discountPercent: -10).discounted(40) == 40)
+        #expect(Account(kind: .claudeCodeLocal).discounted(40) == 40)
+    }
+
+    @Test func aNewDiscountKeepsTheReading() {
+        let account = Account(kind: .claudeCodeLocal)
+        var changed = account
+        changed.discountPercent = 20
+        #expect(account.readsTheSame(as: changed))
     }
 }

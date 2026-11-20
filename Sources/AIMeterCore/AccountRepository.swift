@@ -77,7 +77,6 @@ public struct AccountRepository {
         static let codexHome = "auth.openai.codexHome"
         static let openAIAccountID = "auth.openai.accountID"
         static let creditSource = "auth.credit.source"
-        static let monthlyBudget = "auth.credit.monthlyBudget"
         static let showClaude = "show.claude"
         static let showOpenAI = "show.openAI"
         static let showAPICredit = "show.apiCredit"
@@ -119,8 +118,9 @@ public struct AccountRepository {
         // 1.0 showed the plan's API credit as its own item. It is now a tank on the Claude
         // account, so only spend read with an Admin key needs an account of its own.
         if string(Legacy.creditSource) == "adminKey" {
-            let account = Account(kind: .anthropicAPI, isVisible: shown(Legacy.showAPICredit),
-                                  monthlyBudget: defaults.object(forKey: Legacy.monthlyBudget) as? Double)
+            // 1.0 measured the month's spend against a budget. Spend is now shown per day
+            // with no limit, so the budget is not carried over.
+            let account = Account(kind: .anthropicAPI, isVisible: shown(Legacy.showAPICredit))
             moveSecret(Legacy.adminKey, to: account)
             accounts.append(account)
         }
