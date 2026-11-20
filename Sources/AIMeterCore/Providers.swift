@@ -8,6 +8,7 @@ public enum Providers {
             case .claude: try await ClaudeProvider().fetch(account, secrets: secrets)
             case .codex: try await CodexProvider().fetch(account, secrets: secrets)
             case .anthropicAPI: try await AnthropicCostProvider().fetch(account, secrets: secrets)
+            case .claudeCodeLocal: try await ClaudeCodeLocalProvider().fetch(account)
             }
         }
     }

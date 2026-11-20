@@ -115,7 +115,6 @@ struct AccountRepositoryTests {
         defaults.set("/tmp/other-codex", forKey: "auth.openai.codexHome")
         defaults.set(false, forKey: "show.openAI")
         defaults.set("adminKey", forKey: "auth.credit.source")
-        defaults.set(250.0, forKey: "auth.credit.monthlyBudget")
         let secrets = MemorySecrets(["claudeToken": "oat", "anthropicAdminKey": "admin"])
         let repository = AccountRepository(defaults: defaults, secrets: secrets, home: home) { _ in false }
 
@@ -130,7 +129,6 @@ struct AccountRepositoryTests {
         #expect(accounts[1].codexHome == "/tmp/other-codex")
         #expect(accounts[1].isVisible == false)
 
-        #expect(accounts[2].monthlyBudget == 250)
         #expect(secrets.read(accounts[2].secretKey) == "admin")
     }
 
