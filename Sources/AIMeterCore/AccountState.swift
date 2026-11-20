@@ -54,8 +54,22 @@ public struct AccountState: Sendable, Equatable, Identifiable {
     /// extra tank in the reading (such as a Claude plan's API credit).
     public var slots: [TankSlot] {
         let tanks = reading?.tanks ?? []
-        let kinds = Set(account.kind.expectedTanks).union(tanks.map(\.kind)).sorted()
+        // A reading that is an amount spent has no tanks, so it leaves no empty slot for one.
+        let expected = reading?.spend != nil && tanks.isEmpty ? [] : account.kind.expectedTanks
+        let kinds = Set(expected).union(tanks.map(\.kind)).sorted()
         return kinds.map { kind in TankSlot(kind: kind, tank: tanks.first { $0.kind == kind }) }
+    }
+
+    /// True when the account shows a spend chip: its kind always does, or its latest reading
+    /// is an amount spent, as for an OpenRouter key without a limit.
+    public var showsSpend: Bool { account.kind.showsSpend || reading?.spend != nil }
+
+    /// What the account spent, with its discount taken off. The reading holds list prices.
+    public var spend: Spend? {
+        guard var spend = reading?.spend else { return nil }
+        spend.today = account.discounted(spend.today)
+        spend.monthToDate = account.discounted(spend.monthToDate)
+        return spend
     }
 
     /// Forgets everything read so far. Used when the account starts reading from a different login.

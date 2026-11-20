@@ -44,7 +44,7 @@ private struct NoAccounts: View {
                 .font(.headline)
             Text(hasHiddenAccounts
                 ? "Turn on an account's tanks in Settings."
-                : "Add a Claude, OpenAI, or Anthropic API account in Settings.")
+                : "Add a Claude, OpenAI, or API spend account in Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Open Settings…") {
@@ -79,7 +79,10 @@ private struct AccountSection: View {
                     .foregroundStyle(.secondary)
             }
 
-            if state.reading != nil {
+            if let spend = state.spend {
+                SpendRow(spend: spend, account: account, fill: SpendFill(state, condition: condition), condition: condition)
+            }
+            if state.reading != nil, !state.slots.isEmpty {
                 tanks(condition)
                 ForEach(state.reading?.scoped ?? [], id: \.name) { limit in
                     ScopedRow(limit: limit)
@@ -132,7 +135,7 @@ private struct AccountSection: View {
             ForEach(rows, id: \.first?.kind) { row in
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(row) { slot in
-                        TankRow(slot: slot, condition: condition, kind: account.kind)
+                        TankRow(slot: slot, condition: condition)
                     }
                 }
             }
@@ -182,7 +185,6 @@ private struct StatusLine: View {
 private struct TankRow: View {
     let slot: TankSlot
     let condition: AccountState.Condition
-    let kind: AccountKind
 
     @AppStorage(Preferences.showPace) private var showPace = true
 
@@ -233,8 +235,44 @@ private struct TankRow: View {
         guard let tank = slot.tank else { return nil }
         let reset = tank.resetsAt.map { ResetText.string(for: $0) }
         guard let dollars = tank.dollars else { return reset }
-        let limit = "of \(dollars.limit.formatted(Self.dollars))\(kind == .anthropicAPI ? " budget" : "")"
+        let limit = "of \(dollars.limit.formatted(Self.dollars))"
         return [limit, reset].compactMap(\.self).joined(separator: " · ")
+    }
+}
+
+/// A spend chip with the exact amount, when it starts over, and the month's total beside it.
+private struct SpendRow: View {
+    let spend: Spend
+    let account: Account
+    let fill: SpendFill
+    let condition: AccountState.Condition
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            SpendChipView(fill: fill)
+            VStack(alignment: .leading, spacing: 3) {
+                // Anthropic's cost report comes in whole UTC days, so the title says which day this is.
+                Text(spend.isUTCDay ? "Today (UTC)" : "Today").font(.subheadline)
+                Text(spend.today.formatted(.currency(code: "USD")))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(condition == .live ? .primary : .secondary)
+                Group {
+                    Text(ResetText.string(for: spend.resetsAt))
+                    Text("\(spend.monthToDate.formatted(.currency(code: "USD"))) this month")
+                    if let discount = account.discountPercent, discount > 0 {
+                        Text("After your \(discount.formatted(.number.precision(.fractionLength(0...2))))% discount")
+                    }
+                    if !spend.unpricedModels.isEmpty {
+                        Text("Not counted, no known price: \(spend.unpricedModels.joined(separator: ", "))")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

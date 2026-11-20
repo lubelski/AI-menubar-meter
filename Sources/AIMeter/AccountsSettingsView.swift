@@ -157,10 +157,14 @@ private struct AccountForm: View {
                 Toggle("Show in menu bar and panel", isOn: binding(\.isVisible))
             }
 
+            // One section for a spend account's source and its settings, so the tab fits without scrolling.
             Section {
                 signIn
+                if state.showsSpend { spendFields }
             } footer: {
-                SettingsFootnote(signInNote)
+                // An OpenRouter key without a limit has one more row than the other spend
+                // accounts, so it leaves the second note out to fit.
+                SettingsFootnote(account.kind.showsSpend ? "\(signInNote) \(Self.spendNote)" : signInNote)
             }
 
             Section {
@@ -217,13 +221,28 @@ private struct AccountForm: View {
             CommittedTextField(title: "Account ID", prompt: "Optional", value: binding(\.chatGPTAccountID))
         case (.anthropicAPI, _):
             SecretField(title: "Admin API key", prompt: "sk-ant-admin01-…", store: store, account: account)
-            TextField("Monthly budget", value: binding(\.monthlyBudget),
-                      format: .currency(code: "USD").precision(.fractionLength(0)))
         case (.openRouter, _):
             SecretField(title: "Management key", prompt: "sk-or-v1-…", store: store, account: account)
-            OpenRouterKeyPicker(store: store, account: account,
-                                keyHash: binding(\.openRouterKeyHash), monthlyBudget: binding(\.monthlyBudget))
+            OpenRouterKeyPicker(store: store, account: account, keyHash: binding(\.openRouterKeyHash))
+        case (.claudeCodeLocal, _):
+            LabeledContent("Logs") {
+                Text((ClaudeCodeLocalProvider.defaultLogFolder.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private static let spendNote = "The amount turns orange and red when the day's spend reaches the amounts above. The discount is the percentage your contract takes off list prices."
+
+    /// The settings every spend account has: when the amount changes color, and the discount.
+    @ViewBuilder
+    private var spendFields: some View {
+        TextField("Turn orange at", value: binding(\.spendWarning),
+                  format: .currency(code: "USD").precision(.fractionLength(0)), prompt: Text("Never"))
+        TextField("Turn red at", value: binding(\.spendCritical),
+                  format: .currency(code: "USD").precision(.fractionLength(0)), prompt: Text("Never"))
+        TextField("Discount (%)", value: binding(\.discountPercent),
+                  format: .number.precision(.fractionLength(0...2)), prompt: Text("None"))
     }
 
     private func title(of source: CredentialSource) -> String {
@@ -248,12 +267,14 @@ private struct AccountForm: View {
             "AI Meter signs in to ChatGPT in your browser and keeps its own login, separate from the Codex CLI's. Sign in to a different ChatGPT account for each OpenAI account here."
         case (.claude, .oauth), (.anthropicAPI, .oauth), (.openRouter, .oauth):
             ""
+        case (.openRouter, _):
+            "Your credit balance, or one API key. A key without a limit shows what it spent today, from midnight UTC. Reading either needs a Management API key, not a regular one. Create one on [OpenRouter](https://openrouter.ai/settings/management-keys)."
+        case (.claudeCodeLocal, _):
+            "What Claude Code used on this Mac today, at Anthropic's list prices, worked out from the token counts in its logs. The logs don't say who paid, so usage covered by a Claude subscription counts too."
         case (.codex, .pasted):
             "A ChatGPT access token. It's stored in your Keychain. Add the account ID if you're in a Team or Enterprise workspace."
         case (.anthropicAPI, _):
-            "Your organization's month-to-date API spend, measured against this budget. Create an Admin key in [Claude Console](https://platform.claude.com) under Settings → Admin keys."
-        case (.openRouter, _):
-            "Shows your credit balance, or one API key's spend against its limit. A key without a limit is measured against a monthly budget. Reading either needs a Management API key, not a regular one. Create one on [OpenRouter](https://openrouter.ai/settings/management-keys). It's stored in your Keychain."
+            "Your whole organization's API spend today, as Anthropic reports it. The day starts at midnight UTC, because the report comes in whole UTC days. Create an Admin key in [Claude Console](https://platform.claude.com) under Settings → Admin keys."
         }
     }
 }
@@ -306,14 +327,12 @@ private struct BrowserSignInRow: View {
 }
 
 /// Chooses what an OpenRouter account shows: the credit balance or one API key.
-/// Lists the keys with the account's management key, and asks for a monthly budget
-/// when the chosen key has no limit.
+/// Lists the keys with the account's management key.
 private struct OpenRouterKeyPicker: View {
     let store: UsageStore
     let account: Account
     /// `nil` means the credit balance.
     @Binding var keyHash: String?
-    @Binding var monthlyBudget: Double?
 
     @State private var keys: [OpenRouterKey] = []
     @State private var error: ProviderError?
@@ -336,11 +355,6 @@ private struct OpenRouterKeyPicker: View {
             Text("Couldn't list keys: \(error.message)")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        }
-        if let chosen, chosen.limit == nil {
-            TextField("Monthly budget", value: Binding {
-                monthlyBudget ?? Account.defaultMonthlyBudget
-            } set: { monthlyBudget = $0 }, format: .currency(code: "USD").precision(.fractionLength(0)))
         }
     }
 

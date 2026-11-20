@@ -136,8 +136,9 @@ struct AppearanceSettingsView: View {
                 }
             }
 
-            Section("Tanks") {
+            Section("Tanks and API Spend") {
                 TankLegend()
+                SpendLegend()
             }
         }
         .formStyle(.grouped)
@@ -160,6 +161,32 @@ private struct TankLegend: View {
             ForEach(entries, id: \.1) { fill, label in
                 VStack(spacing: 6) {
                     TankView(fill: fill, kind: .weekly, height: 40)
+                    Text(label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Shows each way a spend chip can be drawn, in the same order as the tanks above it.
+private struct SpendLegend: View {
+    private let entries: [(SpendFill, String)] = [
+        (.live(dollars: 42, level: .normal), "Current"),
+        (.live(dollars: 120, level: .warning), "Over orange"),
+        (.live(dollars: 1240, level: .critical), "Over red"),
+        (.lastKnown(dollars: 42), "Out of date"),
+        (.unavailable, "Can't read"),
+    ]
+
+    var body: some View {
+        HStack(alignment: .top) {
+            ForEach(entries, id: \.1) { fill, label in
+                VStack(spacing: 6) {
+                    SpendChipView(fill: fill, height: 18)
                     Text(label)
                         .font(.caption)
                         .foregroundStyle(.secondary)

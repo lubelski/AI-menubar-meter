@@ -23,7 +23,9 @@ public struct OpenRouterProvider: Sendable {
 
         let keys = try await Self.listKeys(managementKey: managementKey)
         guard let key = keys.first(where: { $0.hash == hash }) else { throw .keyNotFound }
-        return Reading(tanks: [key.tank(budget: account.monthlyBudget ?? Account.defaultMonthlyBudget, now: now)])
+        // A key without a limit has nothing to drain, so it shows what it spent.
+        guard let tank = key.tank(now: now) else { return Reading(spend: key.spend(now: now)) }
+        return Reading(tanks: [tank])
     }
 
     /// Every enabled, unexpired API key in the management key's workspace.
@@ -76,6 +78,8 @@ public struct OpenRouterKey: Decodable, Sendable, Equatable, Identifiable {
     public var limitRemaining: Double?
     /// `daily`, `weekly` or `monthly`; `nil` when the limit never resets.
     public var limitReset: String?
+    /// Spend in the current UTC day and month.
+    public var usageDaily: Double
     public var usageMonthly: Double
 
     public var id: String { hash }
@@ -84,18 +88,20 @@ public struct OpenRouterKey: Decodable, Sendable, Equatable, Identifiable {
         case hash, name, limit
         case limitRemaining = "limit_remaining"
         case limitReset = "limit_reset"
+        case usageDaily = "usage_daily"
         case usageMonthly = "usage_monthly"
     }
 
-    /// The key's spend against its limit. A key without a limit is measured by this
-    /// month's spend against `budget`, the same way an Anthropic API account is.
-    func tank(budget: Double, now: Date) -> Tank {
-        guard let limit else {
-            let month = UTCWindow.month.containing(now)
-            let dollars = Dollars(used: usageMonthly, limit: budget)
-            return Tank(kind: .pool, title: "This month", used: dollars.fraction,
-                        resetsAt: month.end, duration: month.duration, dollars: dollars)
-        }
+    /// What the key spent today and this month, for a key without a limit. OpenRouter
+    /// counts both in UTC, as Anthropic's cost report does.
+    func spend(now: Date) -> Spend {
+        Spend(today: usageDaily, monthToDate: usageMonthly,
+              resetsAt: UTCWindow.daily.containing(now).end, isUTCDay: true)
+    }
+
+    /// The key's spend against its limit, or `nil` for a key without a limit.
+    func tank(now: Date) -> Tank? {
+        guard let limit else { return nil }
         let dollars = Dollars(used: limit - (limitRemaining ?? limit), limit: limit)
         let window = limitReset.flatMap(UTCWindow.init(rawValue:))?.containing(now)
         let title = switch limitReset {
@@ -112,8 +118,6 @@ public struct OpenRouterKey: Decodable, Sendable, Equatable, Identifiable {
 /// The calendar windows OpenRouter resets limits on, in UTC. Weeks start on Monday.
 enum UTCWindow: String {
     case daily, weekly, monthly
-
-    static let month = UTCWindow.monthly
 
     func containing(_ date: Date) -> DateInterval {
         var calendar = Calendar(identifier: .gregorian)

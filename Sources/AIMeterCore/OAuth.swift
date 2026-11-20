@@ -33,7 +33,7 @@ public struct OAuthClient: Sendable {
         // logins to its own products. OpenAI's own "Sign in with ChatGPT" may fit; it needs
         // a client registered for AI Meter. OpenRouter's PKCE sign-in issues a regular
         // API key, which can't read the account's credit balance.
-        case .claude, .codex, .anthropicAPI, .openRouter: nil
+        case .claude, .codex, .anthropicAPI, .claudeCodeLocal, .openRouter: nil
         }
     }
 
