@@ -4,11 +4,13 @@ import Foundation
 public enum Brand: Sendable, Equatable {
     case anthropic
     case openAI
+    case openRouter
 
     public var title: String {
         switch self {
         case .anthropic: "Anthropic"
         case .openAI: "OpenAI"
+        case .openRouter: "OpenRouter"
         }
     }
 }
@@ -22,6 +24,10 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case codex
     /// An Anthropic API organization, read with an Admin key.
     case anthropicAPI
+    /// Claude Code on this Mac, with spend estimated from its own logs.
+    case claudeCodeLocal
+    /// OpenRouter's prepaid credit balance or one of its API keys, read with a Management API key.
+    case openRouter
 
     public var id: Self { self }
 
@@ -30,13 +36,16 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claude: "Claude"
         case .codex: "OpenAI"
         case .anthropicAPI: "Anthropic API"
+        case .claudeCodeLocal: "Claude Code (local)"
+        case .openRouter: "OpenRouter"
         }
     }
 
     public var brand: Brand {
         switch self {
-        case .claude, .anthropicAPI: .anthropic
+        case .claude, .anthropicAPI, .claudeCodeLocal: .anthropic
         case .codex: .openAI
+        case .openRouter: .openRouter
         }
     }
 
@@ -45,7 +54,8 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .claude: URL(string: "https://claude.ai/settings/usage")!
         case .codex: URL(string: "https://chatgpt.com/settings/usage?tab=overview")!
-        case .anthropicAPI: URL(string: "https://platform.claude.com/cost")!
+        case .anthropicAPI, .claudeCodeLocal: URL(string: "https://platform.claude.com/cost")!
+        case .openRouter: URL(string: "https://openrouter.ai/settings/credits")!
         }
     }
 
@@ -53,7 +63,9 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public var credentialSources: [CredentialSource] {
         switch self {
         case .claude, .codex: OAuthClient.for(self) == nil ? [.cli, .pasted] : [.cli, .oauth, .pasted]
-        case .anthropicAPI: [.pasted]
+        case .anthropicAPI, .openRouter: [.pasted]
+        // Nothing to sign in to. `cli` stands for "what the command-line tool keeps on this Mac".
+        case .claudeCodeLocal: [.cli]
         }
     }
 
@@ -62,9 +74,17 @@ public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public var expectedTanks: [Tank.Kind] {
         switch self {
         case .claude, .codex: [.session, .weekly]
-        case .anthropicAPI: [.pool]
+        case .anthropicAPI, .claudeCodeLocal: []
+        // The balance and a key with a limit are tanks. A key without a limit shows a spend
+        // chip, which `AccountState.slots` allows for once the first reading says so.
+        case .openRouter: [.pool]
         }
     }
+
+    /// True for a kind that always bills by use and has no limit. It shows what was spent as
+    /// an amount, not a tank that drains. An OpenRouter account does so only for a key
+    /// without a limit, so ask `AccountState.showsSpend` about one account.
+    public var showsSpend: Bool { self == .anthropicAPI || self == .claudeCodeLocal }
 }
 
 public enum CredentialSource: String, Codable, Identifiable, Sendable {
@@ -93,8 +113,16 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
     public var codexHome: String?
     /// Codex with a pasted token only: the workspace to read, for Team and Enterprise.
     public var chatGPTAccountID: String?
-    /// Anthropic API only: the monthly budget that spend is measured against.
-    public var monthlyBudget: Double?
+    /// Spend accounts only: the day's spend, in dollars, at which the amount turns orange.
+    /// `nil` means it never does.
+    public var spendWarning: Double?
+    /// Spend accounts only: the day's spend, in dollars, at which the amount turns red.
+    public var spendCritical: Double?
+    /// Spend accounts only: the discount the user's contract takes off list prices, as a
+    /// percentage from 0 to 100. Every amount shown has it taken off.
+    public var discountPercent: Double?
+    /// OpenRouter only: the hash of the API key to show. `nil` shows the account's credit balance.
+    public var openRouterKeyHash: String?
 
     public init(
         id: UUID = UUID(),
@@ -104,7 +132,10 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
         credential: CredentialSource? = nil,
         codexHome: String? = nil,
         chatGPTAccountID: String? = nil,
-        monthlyBudget: Double? = nil
+        spendWarning: Double? = nil,
+        spendCritical: Double? = nil,
+        discountPercent: Double? = nil,
+        openRouterKeyHash: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -113,10 +144,23 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
         self.credential = credential ?? kind.credentialSources[0]
         self.codexHome = codexHome
         self.chatGPTAccountID = chatGPTAccountID
-        self.monthlyBudget = monthlyBudget ?? (kind == .anthropicAPI ? Self.defaultMonthlyBudget : nil)
+        self.spendWarning = spendWarning
+        self.spendCritical = spendCritical
+        self.discountPercent = discountPercent
+        self.openRouterKeyHash = openRouterKeyHash
     }
 
-    public static let defaultMonthlyBudget = 100.0
+    /// `dollars` with the account's discount taken off.
+    public func discounted(_ dollars: Double) -> Double {
+        dollars * (1 - min(max(discountPercent ?? 0, 0), 100) / 100)
+    }
+
+    /// How an amount spent today, after the discount, compares with the thresholds the user set.
+    public func spendLevel(_ dollars: Double) -> UsageLevel {
+        if let spendCritical, spendCritical > 0, dollars >= spendCritical { return .critical }
+        if let spendWarning, spendWarning > 0, dollars >= spendWarning { return .warning }
+        return .normal
+    }
 
     /// Keychain account name for this account's pasted secret.
     public var secretKey: String { "account.\(id.uuidString)" }
@@ -130,11 +174,15 @@ public struct Account: Codable, Identifiable, Sendable, Equatable {
     public var resolvedCodexHome: String { codexHome ?? Self.defaultCodexHome }
 
     /// True when both values read the same numbers from the same place, so a reading
-    /// fetched for one is still valid for the other. A rename or a visibility change keeps it true.
+    /// fetched for one is still valid for the other. A rename, a visibility change, a new
+    /// spend threshold, or a new discount keeps it true.
     public func readsTheSame(as other: Account) -> Bool {
         var a = self, b = other
         a.name = ""; b.name = ""
         a.isVisible = true; b.isVisible = true
+        a.spendWarning = nil; b.spendWarning = nil
+        a.spendCritical = nil; b.spendCritical = nil
+        a.discountPercent = nil; b.discountPercent = nil
         return a == b
     }
 }

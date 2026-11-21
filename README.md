@@ -1,12 +1,15 @@
 # AI Meter
 
 A small macOS menu bar app that shows how much of each AI allowance you have left, as a row of tanks that drain.
+An account that bills by use has no allowance, so it shows what you spent today as an amount.
 
-| Account kind | Tanks |
+| Account kind | Shows |
 |--------|--------|
-| Claude | 5-hour session · weekly · API credit, when the plan includes one |
-| OpenAI (Codex) | 5-hour session · weekly |
-| Anthropic API | month-to-date spend against a budget you set |
+| Claude | Tanks: 5-hour session · weekly · API credit, when the plan includes one |
+| OpenAI (Codex) | Tanks: 5-hour session · weekly |
+| Anthropic API | A spend chip: your organization's spend today, such as `$42` or `$1.2K`, as Anthropic reports it |
+| Claude Code (local) | A spend chip: what Claude Code used on this Mac today, estimated from its logs |
+| OpenRouter | A tank: the credit balance, or one API key's spend against its limit (daily, weekly, monthly or total). A key without a limit shows a spend chip. |
 
 You can add any number of accounts of each kind, for example three OpenAI accounts and no Claude account.
 
@@ -29,12 +32,43 @@ A level below the tick means you're burning faster than the window refills.
 A reading is out of date when it has missed two refreshes, or when the account needs you to sign in again.
 The panel says how old the reading is and why.
 
+## Reading a spend chip
+
+The chip is a rounded box the height of a tank, with the day's spend in compact form: `$4.20`, `$42`, `$123`, `$1.2K`.
+Cents show only under $10. The panel has the exact amount, when the day starts over, and the month's total.
+
+An OpenRouter key without a limit also shows a chip, with the day's and the month's spend that OpenRouter reports, both in UTC.
+
+The two kinds of spend account get the amount from different places:
+
+| | Anthropic API | Claude Code (local) |
+|---|---|---|
+| Source | Anthropic's cost report, read with an Admin key | Claude Code's logs in `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`) |
+| Covers | The whole organization: every key and machine | Claude Code on this Mac |
+| Dollars | What Anthropic reports | Token counts priced at list prices, from the table in `ModelPrices.swift` |
+| Day | A UTC day, because the report comes in whole UTC days | The Mac's own calendar day |
+
+The local estimate has three limits. The logs don't say who paid, so usage covered by a Claude subscription is counted too. A model with no entry in the price table is left out, and the panel names it. Web search requests, which Anthropic bills per request, are not counted.
+
+Each spend account has an optional discount: the percentage your contract takes off list prices. Every amount is shown with it taken off, and the thresholds compare against that amount.
+
+| Drawing | Meaning |
+|---|---|
+| Monochrome | A current amount |
+| Orange | The day's spend reached the account's orange threshold |
+| Red, with a red outline | The day's spend reached the account's red threshold |
+| Dimmed, never colored | The last amount read, which is out of date |
+| `$–` in a dashed outline | AI Meter can't read the account and has no earlier amount |
+| `$–` in a faint outline | The first reading hasn't arrived yet |
+
+Each spend account has its own two thresholds, in dollars per day, in Settings → Accounts. Both start empty, so the chip stays monochrome until you set one.
+
 ## Settings
 
 Open from the panel's ⋯ menu (⌘,). Each tab fits the window without scrolling.
 
 - **General**: the refresh interval (1–15 min) and launch at login.
-- **Appearance**: show or hide the service logos and the pace marker. A legend shows each way a tank can be drawn.
+- **Appearance**: show or hide the service logos and the pace marker. A legend shows each way a tank and a spend chip can be drawn.
 - **Accounts**: the list of accounts.
 - **About**: the version, a link to this repository, and the license.
 
@@ -48,7 +82,9 @@ Each account has a name, a switch that hides it from the menu bar and the panel,
 |---|---|---|
 | Claude | Claude Code's login (Keychain `Claude Code-credentials`, read via `/usr/bin/security` so there's no prompt) | Pasted OAuth access token |
 | OpenAI | Codex CLI's `auth.json` (the folder is set per account and defaults to `$CODEX_HOME` or `~/.codex`) | Pasted ChatGPT access token + optional account ID |
-| Anthropic API | Anthropic Admin API key: month-to-date spend from `/v1/organizations/cost_report` against a monthly budget you set | |
+| Anthropic API | Anthropic Admin API key: today's and the month's spend from `/v1/organizations/cost_report` | |
+| Claude Code (local) | Nothing to sign in to. It reads Claude Code's logs on this Mac. | |
+| OpenRouter | OpenRouter Management API key: the balance from `/api/v1/credits`, or a key chosen by name from `/api/v1/keys`. Both routes reject regular API keys. | |
 
 Claude Code keeps one login per Mac, so a second Claude account needs a pasted token.
 For a second OpenAI account, run `codex login` with `CODEX_HOME` set to another folder, then choose that folder in the account's settings.
@@ -104,6 +140,7 @@ The script publishes a GitHub Release with two files: the zipped app and `appcas
   - `AccountState.swift`: an account with its latest reading, and the rule for when that reading is out of date
 - `Sources/AIMeter`: SwiftUI `MenuBarExtra`, the panel, Settings, and `AppUpdater` (Sparkle)
   - `TankDrawing.swift`: the one Core Graphics routine that draws a tank for the menu bar icon, the panel, and the app icon
+  - `SpendChip.swift`: the routine that draws a spend chip for the menu bar icon and the panel
 - `Resources/AppIcon.icon`: the app icon, an Icon Composer file that `bundle.sh` compiles. `scripts/render-icon.sh` redraws its artwork from `TankDrawing.swift`.
 - `Tests/AIMeterCoreTests`: parsing tests built from real response shapes, plus tests for the account list, migration, and the store
 

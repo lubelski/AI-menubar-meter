@@ -1,11 +1,11 @@
 import AIMeterCore
 import AppKit
 
-/// Draws the row of tanks shown in the menu bar.
+/// Draws the row of tanks and spend chips shown in the menu bar.
 ///
-/// While no tank is running low the image is a template, so it matches the menu
-/// bar exactly like a system icon. When a tank turns orange or red, the image
-/// switches to a colored one so that tank stands out.
+/// While nothing is colored the image is a template, so it matches the menu
+/// bar exactly like a system icon. When a tank or a chip turns orange or red, the
+/// image switches to a colored one so that item stands out.
 enum MenuBarIcon {
     private static let canvasHeight: CGFloat = 18
     /// Inset between a brand's plate and the logo and bars inside it.
@@ -26,12 +26,22 @@ enum MenuBarIcon {
         case logo(Brand)
         case gap(CGFloat)
         case tank(Tank.Kind, TankFill)
+        case spend(SpendFill)
 
         var width: CGFloat {
             switch self {
             case .logo: logoSize
             case .gap(let width): width
             case .tank(let kind, _): TankDrawing.width(for: kind)
+            case .spend(let fill): SpendChip.width(for: fill, height: barHeight)
+            }
+        }
+
+        var isColored: Bool {
+            switch self {
+            case .logo, .gap: false
+            case .tank(_, let fill): fill.isColored
+            case .spend(let fill): fill.isColored
             }
         }
     }
@@ -59,6 +69,10 @@ enum MenuBarIcon {
                 if index > 0 { plates[plates.count - 1].items.append(.gap(barGap)) }
                 plates[plates.count - 1].items.append(.tank(slot.kind, TankFill(slot, condition: condition)))
             }
+            if state.showsSpend {
+                if !state.slots.isEmpty { plates[plates.count - 1].items.append(.gap(barGap)) }
+                plates[plates.count - 1].items.append(.spend(SpendFill(state, condition: condition)))
+            }
         }
         return plates
     }
@@ -68,9 +82,7 @@ enum MenuBarIcon {
         guard !states.isEmpty else { return placeholder }
 
         let plates = layout(states, staleAfter: staleAfter, showLogos: showLogos)
-        let isTemplate = !plates.flatMap(\.items).contains { item in
-            if case .tank(_, let fill) = item { fill.isColored } else { false }
-        }
+        let isTemplate = !plates.flatMap(\.items).contains(where: \.isColored)
         let width = plates.map(\.width).reduce(0, +) + CGFloat(max(plates.count - 1, 0)) * plateGap
 
         let image = NSImage(size: NSSize(width: width, height: canvasHeight), flipped: false) { _ in
@@ -91,6 +103,9 @@ enum MenuBarIcon {
                     case .tank(_, let fill):
                         TankDrawing.draw(fill, in: CGRect(x: x, y: platePadding, width: item.width, height: barHeight),
                                          context: context, ink: base.cgColor, flipped: false)
+                    case .spend(let fill):
+                        SpendChip.draw(fill, in: CGRect(x: x, y: platePadding, width: item.width, height: barHeight),
+                                       ink: base)
                     case .gap:
                         break
                     }
@@ -122,10 +137,13 @@ enum MenuBarIcon {
         case .unavailable: return "\(name) unavailable"
         case .live, .stale:
             let stale = state.condition(staleAfter: staleAfter) == .stale
-            let tanks = state.slots.compactMap(\.tank).map { tank in
+            var parts = state.slots.compactMap(\.tank).map { tank in
                 "\(tank.title) \(Int((tank.remaining * 100).rounded())) percent left"
             }
-            return "\(name)\(stale ? ", last known" : ""): " + tanks.joined(separator: ", ")
+            if let spend = state.spend {
+                parts.append("\(spend.today.formatted(.currency(code: "USD"))) spent today")
+            }
+            return "\(name)\(stale ? ", last known" : ""): " + parts.joined(separator: ", ")
         }
     }
 }

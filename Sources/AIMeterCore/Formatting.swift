@@ -22,3 +22,26 @@ public enum ResetText {
         return hours > 0 ? "Resets in \(hours)h \(minutes)m" : "Resets in \(max(minutes, 1))m"
     }
 }
+
+public enum CompactDollars {
+    /// A dollar amount in at most five characters, for the menu bar: "$0.42", "$4.20",
+    /// "$42", "$123", "$1.2K", "$12K", "$1.2M".
+    ///
+    /// Cents show only under $10, where they are most of the amount.
+    public static func string(_ dollars: Double) -> String {
+        let value = max(dollars, 0)
+        // Each step is tested against the rounded value, so $9.999 reads "$10" and not "$10.00".
+        if value < 9.995 { return "$" + fixed(value, 2) }
+        if value < 999.5 { return "$" + fixed(value, 0) }
+        for (unit, suffix) in [(1e3, "K"), (1e6, "M")] {
+            let scaled = value / unit
+            if scaled < 9.95 { return "$" + fixed(scaled, 1) + suffix }
+            if scaled < 999.5 { return "$" + fixed(scaled, 0) + suffix }
+        }
+        return "$" + fixed(value / 1e9, value < 9.95e9 ? 1 : 0) + "B"
+    }
+
+    private static func fixed(_ value: Double, _ digits: Int) -> String {
+        value.formatted(.number.precision(.fractionLength(digits)).grouping(.never).locale(Locale(identifier: "en_US_POSIX")))
+    }
+}

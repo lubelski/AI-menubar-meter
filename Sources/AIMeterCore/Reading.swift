@@ -65,6 +65,32 @@ public struct Dollars: Sendable, Equatable {
     public var fraction: Double { limit > 0 ? min(max(used / limit, 0), 1) : 0 }
 }
 
+/// What an account that bills by use has spent. There is no limit to drain, so the menu
+/// bar shows the amount itself.
+public struct Spend: Sendable, Equatable {
+    /// Dollars spent so far today.
+    public var today: Double
+    /// Dollars spent so far this month, today included.
+    public var monthToDate: Double
+    /// When today's amount starts again from zero.
+    public var resetsAt: Date
+    /// True when the day and the month are UTC ones, as in Anthropic's cost report, which
+    /// comes in whole UTC days. False when they follow the Mac's own calendar.
+    public var isUTCDay: Bool
+    /// Models that were used but have no known price. Their tokens are not in the amounts.
+    public var unpricedModels: [String]
+
+    public init(
+        today: Double, monthToDate: Double, resetsAt: Date, isUTCDay: Bool, unpricedModels: [String] = []
+    ) {
+        self.today = today
+        self.monthToDate = monthToDate
+        self.resetsAt = resetsAt
+        self.isUTCDay = isUTCDay
+        self.unpricedModels = unpricedModels
+    }
+}
+
 /// A weekly limit restricted to one model (e.g. "Opus only").
 public struct ScopedLimit: Sendable, Equatable {
     public var name: String
@@ -84,11 +110,14 @@ public struct Reading: Sendable, Equatable {
     /// Tanks the account's kind usually has but this plan doesn't, such as the session
     /// limit on Claude Ultra. They get no slot, not an empty one.
     public var absentTanks: Set<Tank.Kind> = []
+    /// Set for accounts that bill by use. See `AccountKind.showsSpend`.
+    public var spend: Spend?
 
-    public init(plan: String? = nil, tanks: [Tank] = [], scoped: [ScopedLimit] = []) {
+    public init(plan: String? = nil, tanks: [Tank] = [], scoped: [ScopedLimit] = [], spend: Spend? = nil) {
         self.plan = plan
         self.tanks = tanks.sorted { $0.kind < $1.kind }
         self.scoped = scoped
+        self.spend = spend
     }
 
     public func tank(_ kind: Tank.Kind) -> Tank? {
@@ -115,6 +144,10 @@ public enum ProviderError: Error, Sendable, Equatable {
     case notSignedIn
     case sessionExpired
     case keyRejected
+    /// The OpenRouter key the account shows was deleted, disabled or has expired.
+    case keyNotFound
+    /// Claude Code's log folder isn't on this Mac.
+    case noLogs
     case claudeCode(ClaudeCodeIssue)
     case rateLimited
     case network(String)
@@ -123,7 +156,7 @@ public enum ProviderError: Error, Sendable, Equatable {
     /// Errors the user has to fix (as opposed to ones that clear up on their own).
     public var needsAttention: Bool {
         switch self {
-        case .notSignedIn, .sessionExpired, .keyRejected, .claudeCode: true
+        case .notSignedIn, .sessionExpired, .keyRejected, .keyNotFound, .noLogs, .claudeCode: true
         case .rateLimited, .network, .unexpectedResponse: false
         }
     }
@@ -138,6 +171,8 @@ public enum ProviderError: Error, Sendable, Equatable {
         case .notSignedIn: "Not signed in"
         case .sessionExpired: "Sign-in expired"
         case .keyRejected: "Key was rejected"
+        case .keyNotFound: "Key not found"
+        case .noLogs: "Can't find Claude Code's logs"
         case .claudeCode(.signedOut): "Claude Code is signed out"
         case .claudeCode(.loginExpired): "Claude Code login expired"
         case .claudeCode(.refreshFailed): "Sign-in needs a refresh"
