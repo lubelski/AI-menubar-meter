@@ -31,16 +31,17 @@ struct SettingsView: View {
         // One size for every tab, so the window doesn't jump when switching.
         // Every tab is laid out to fit this size without scrolling.
         .frame(width: 660, height: 520)
-        .background(FixedWindowTitle("AI Meter"))
+        .background(SettingsWindowSetup(title: "AI Meter"))
     }
 }
 
-/// SwiftUI titles the Settings window after the selected tab. This keeps it
-/// showing the app name instead, re-applying it whenever SwiftUI changes it.
-private struct FixedWindowTitle: NSViewRepresentable {
+/// Reaches the Settings window that SwiftUI creates, to set what SwiftUI has no modifier for.
+///
+/// SwiftUI titles the window after the selected tab. This keeps it showing the app
+/// name instead, re-applying it whenever SwiftUI changes it. It also makes the window
+/// follow the user to the current Space.
+private struct SettingsWindowSetup: NSViewRepresentable {
     let title: String
-
-    init(_ title: String) { self.title = title }
 
     func makeNSView(context: Context) -> TitleKeeper { TitleKeeper(title: title) }
     func updateNSView(_ view: TitleKeeper, context: Context) {}
@@ -58,6 +59,9 @@ private struct FixedWindowTitle: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            // Opening Settings while its window sits on another Space brings the
+            // window to the current Space, instead of switching Spaces to reach it.
+            window?.collectionBehavior.insert(.moveToActiveSpace)
             observation = window?.observe(\.title, options: [.initial]) { [title] window, _ in
                 MainActor.assumeIsolated {
                     if window.title != title { window.title = title }
