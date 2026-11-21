@@ -18,7 +18,7 @@ public enum Brand: Sendable, Equatable {
 /// A kind of account AI Meter can read. To add a kind, add a case here, a provider
 /// in `Providers`, and a form in the Accounts settings.
 public enum AccountKind: String, Codable, CaseIterable, Identifiable, Sendable {
-    /// A Claude subscription (Pro, Max, Team).
+    /// A Claude subscription (Pro, Max, Ultra, Team).
     case claude
     /// A ChatGPT subscription, as used by Codex.
     case codex

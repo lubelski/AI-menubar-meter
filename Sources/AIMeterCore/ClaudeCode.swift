@@ -18,7 +18,18 @@ struct ClaudeCodeLogin: Sendable, Equatable {
     var accessToken: String
     var expiresAt: Date?
     var refreshExpiresAt: Date?
+    /// `subscriptionType`, such as `pro` or `max`.
     var plan: String?
+    /// `rateLimitTier`, such as `default_claude_max_20x`.
+    var rateLimitTier: String?
+
+    /// The plan's name as Anthropic sells it now. Max 20x was renamed Ultra in late
+    /// October 2026 and Max 5x became plain Max, but Claude Code still stores `max` for
+    /// both. The rate-limit tier tells them apart.
+    var planName: String? {
+        if plan == "ultra" || rateLimitTier?.contains("max_20x") == true { return "Ultra" }
+        return plan?.capitalized
+    }
 
     /// A token that expires within a minute counts as expired, so a fetch can't race the expiry.
     func isUsable(at now: Date = .now) -> Bool {
@@ -37,6 +48,7 @@ struct ClaudeCodeLogin: Sendable, Equatable {
                 var expiresAt: FlexibleNumber?
                 var refreshTokenExpiresAt: FlexibleNumber?
                 var subscriptionType: String?
+                var rateLimitTier: String?
             }
             var claudeAiOauth: OAuth
         }
@@ -46,7 +58,8 @@ struct ClaudeCodeLogin: Sendable, Equatable {
             accessToken: oauth.accessToken,
             expiresAt: oauth.expiresAt.map { Date(timeIntervalSince1970: $0.value / 1000) },
             refreshExpiresAt: oauth.refreshTokenExpiresAt.map { Date(timeIntervalSince1970: $0.value / 1000) },
-            plan: oauth.subscriptionType
+            plan: oauth.subscriptionType,
+            rateLimitTier: oauth.rateLimitTier
         )
     }
 

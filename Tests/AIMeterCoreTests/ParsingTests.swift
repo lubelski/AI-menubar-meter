@@ -256,6 +256,29 @@ struct OpenRouterTests {
         #expect(login.refreshExpiresAt == Date(timeIntervalSince1970: 1_796_080_834.416))
     }
 
+    /// Fields copied from real Claude Code logins (Keychain `Claude Code-credentials`).
+    private func plan(_ subscriptionType: String?, tier: String?) -> String? {
+        var fields = #""accessToken": "a""#
+        if let subscriptionType { fields += #", "subscriptionType": "\#(subscriptionType)""# }
+        if let tier { fields += #", "rateLimitTier": "\#(tier)""# }
+        return ClaudeCodeLogin.decode(Data(#"{"claudeAiOauth": {\#(fields)}}"#.utf8))?.planName
+    }
+
+    @Test func max20xIsNamedUltra() {
+        #expect(plan("max", tier: "default_claude_max_20x") == "Ultra")
+        #expect(plan("ultra", tier: nil) == "Ultra")
+    }
+
+    @Test func max5xIsNamedMax() {
+        #expect(plan("max", tier: "default_claude_max_5x") == "Max")
+        #expect(plan("max", tier: nil) == "Max")
+    }
+
+    @Test func otherPlansKeepTheirName() {
+        #expect(plan("pro", tier: "default_claude_ai") == "Pro")
+        #expect(plan(nil, tier: nil) == nil)
+    }
+
     @Test func staleFileLosesToCurrentKeychainItem() throws {
         let stale = ClaudeCodeLogin.decode(payload(token: "old", expires: "1757000000000"))
         let current = ClaudeCodeLogin.decode(payload(token: "new", expires: "1794280796145"))
